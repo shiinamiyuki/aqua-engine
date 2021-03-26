@@ -3,6 +3,8 @@ use vulkano::buffer::cpu_pool::CpuBufferPool;
 use vulkano::buffer::{BufferUsage, CpuAccessibleBuffer};
 use vulkano::command_buffer::{AutoCommandBufferBuilder, DynamicState, SubpassContents};
 use vulkano::descriptor::descriptor_set::PersistentDescriptorSet;
+use vulkano::descriptor::pipeline_layout::PipelineLayout;
+use vulkano::descriptor::PipelineLayoutAbstract;
 use vulkano::device::{Device, DeviceExtensions};
 use vulkano::format::Format;
 use vulkano::framebuffer::{Framebuffer, FramebufferAbstract, RenderPassAbstract, Subpass};
@@ -29,6 +31,8 @@ use winit::window::{Window, WindowBuilder};
 // use std::path::Path;
 // use nalgebra_glm::{vec3, Vec3};
 use nalgebra_glm as glm;
+use std::time::Instant;
+
 use std::{collections::HashMap, sync::Arc};
 #[derive(Default, Debug, Clone)]
 struct VertexPosition {
@@ -99,7 +103,7 @@ fn compute_normals(model: &mut Model) {
         .collect();
 }
 fn load_model(obj_file: &str) -> Vec<Model> {
-    let (models, materials) = tobj::load_obj(&obj_file, false).expect("Failed to load file");
+    let (models, materials) = tobj::load_obj(&obj_file, true).expect("Failed to load file");
 
     let mut imported_models = vec![];
     println!("# of models: {}", models.len());
@@ -170,11 +174,53 @@ type Pipeline = GraphicsPipeline<
 struct MeshRenderer {
     device: Arc<Device>,
     pipeline: Arc<Pipeline>,
+    vs_uniform_buffer: CpuBufferPool<mesh_render::vs::ty::Data>,
+    // fs_uniform_buffer: CpuBufferPool<mesh_render::fs::ty::Data>,
     render_pass: Arc<dyn RenderPassAbstract + Send + Sync>,
     model: Arc<Model>,
     vertex_buffer: Arc<CpuAccessibleBuffer<[VertexPosition]>>,
     normal_buffer: Arc<CpuAccessibleBuffer<[VertexNormal]>>,
     index_buffer: Arc<CpuAccessibleBuffer<[u32]>>,
+}
+mod mesh_render {
+    pub mod vs {
+        vulkano_shaders::shader! {
+            ty: "vertex",
+            src: "
+            #version 450
+            layout(location = 0) in vec3 position;
+            layout(location = 1) in vec3 normal;
+            
+            layout(location = 0) out vec3 v_normal;
+
+            layout(set = 0, binding = 0) uniform Data {
+                mat4 model;
+                mat4 view;
+                mat4 proj;
+            } uniforms;
+
+            void main() {
+                const mat4 mv = uniforms.view * uniforms.model;
+                v_normal = transpose(inverse(mat3(mv))) * normalize(normal);
+                gl_Position = uniforms.proj * mv * vec4(position, 1.0);
+            }
+        "
+        }
+    }
+
+    pub mod fs {
+        vulkano_shaders::shader! {
+            ty: "fragment",
+            src: "
+            #version 450
+            layout(location = 0) out vec4 f_color;
+            layout(location = 0) in vec3 v_normal;
+            void main() {
+                f_color = vec4(v_normal*0.5+0.5, 1.0);
+            }
+        "
+        }
+    }
 }
 
 impl MeshRenderer {
@@ -191,44 +237,9 @@ impl MeshRenderer {
         // `vulkano-shaders` crate docs. You can view them at https://docs.rs/vulkano-shaders/
         //
         // TODO: explain this in details
-        mod vs {
-            vulkano_shaders::shader! {
-                ty: "vertex",
-                src: "
-				#version 450
-				layout(location = 0) in vec3 position;
-                layout(location = 1) in vec3 normal;
-                
-                layout(location = 0) out vec3 v_normal;
 
-                layout(set = 0, binding = 0) uniform Data {
-                    mat4 model;
-                    mat4 view;
-                    mat4 proj;
-                } uniforms;
-
-				void main() {
-					gl_Position = vec4(position, 1.0);
-				}
-			"
-            }
-        }
-
-        mod fs {
-            vulkano_shaders::shader! {
-                ty: "fragment",
-                src: "
-				#version 450
-				layout(location = 0) out vec4 f_color;
-				void main() {
-					f_color = vec4(1.0, 0.0, 0.0, 1.0);
-				}
-			"
-            }
-        }
-
-        let vs = vs::Shader::load(device.clone()).unwrap();
-        let fs = fs::Shader::load(device.clone()).unwrap();
+        let vs = mesh_render::vs::Shader::load(device.clone()).unwrap();
+        let fs = mesh_render::fs::Shader::load(device.clone()).unwrap();
 
         // Before we draw we have to create what is called a pipeline. This is similar to an OpenGL
         // program, but much more specific.
@@ -275,6 +286,7 @@ impl MeshRenderer {
             )
             .unwrap()
         };
+        assert!(model.indices.len() % 3 == 0);
         let index_buffer = {
             CpuAccessibleBuffer::from_iter(
                 device.clone(),
@@ -284,10 +296,12 @@ impl MeshRenderer {
             )
             .unwrap()
         };
-
+        let vs_uniform_buffer =
+            CpuBufferPool::<mesh_render::vs::ty::Data>::new(device.clone(), BufferUsage::all());
         MeshRenderer {
             device,
             pipeline,
+            vs_uniform_buffer,
             render_pass,
             model,
             vertex_buffer,
@@ -297,12 +311,29 @@ impl MeshRenderer {
     }
 
     fn draw(&self, cmd: &mut AutoCommandBufferBuilder, dynamic_state: &DynamicState, mvp: MVP) {
+        let uniform_buffer_subbuffer = {
+            let uniform_data = mesh_render::vs::ty::Data {
+                model: mvp.model.into(),
+                view: mvp.view.into(),
+                proj: mvp.projection.into(),
+            };
+            self.vs_uniform_buffer.next(uniform_data).unwrap()
+        };
+        let layout = self.pipeline.descriptor_set_layout(0).unwrap();
+        let set = Arc::new(
+            PersistentDescriptorSet::start(layout.clone())
+                .add_buffer(uniform_buffer_subbuffer)
+                .unwrap()
+                .build()
+                .unwrap(),
+        );
+
         cmd.draw_indexed(
             self.pipeline.clone(),
             &dynamic_state,
             (self.vertex_buffer.clone(), self.normal_buffer.clone()),
             self.index_buffer.clone(),
-            (),
+            set,
             (),
             vec![],
         )
@@ -544,7 +575,7 @@ fn main() {
     // Destroying the `GpuFuture` blocks until the GPU is finished executing it. In order to avoid
     // that, we store the submission of the previous frame here.
     let mut previous_frame_end = Some(sync::now(device.clone()).boxed());
-
+    let render_started = Instant::now();
     event_loop.run(move |event, _, control_flow| {
         match event {
             Event::WindowEvent {
@@ -647,10 +678,33 @@ fn main() {
                         clear_values,
                     )
                     .unwrap();
-                let mvp = MVP {
-                    model: glm::identity(),
-                    view: glm::identity(),
-                    projection: glm::perspective(16.0 / 9.0, glm::pi::<f32>() / 2.0, 0.1, 100.0),
+                let mvp = {
+                    // let mut camera = glm::translate(
+                    // &glm::identity(),
+                    // &glm::vec3(0.0, 0.1, 2.1),
+                    // );
+                    let elapsed = render_started.elapsed();
+                    // let rotation =
+                        // elapsed.as_secs() as f32 + elapsed.subsec_nanos() as f32 / 1_000_000_000.0;
+                    // println!("{}",rotation);
+                    let mut model = glm::identity();
+                    // camera = glm::rotate_y(&glm::identity(), rotation) * camera;
+                    // model = glm::rotate_y(&model, rotation);
+                    let view = glm::look_at(
+                        &glm::vec3(0.0, 0.6, 3.0),
+                        &glm::vec3(0.0, 0.6, 2.0),
+                        &glm::vec3(0.0, -1.0, 0.0),
+                    );
+                    MVP {
+                        model: model,
+                        view: view,
+                        projection: glm::perspective(
+                            16.0 / 9.0,
+                            glm::pi::<f32>() / 2.0,
+                            0.1,
+                            100.0,
+                        ),
+                    }
                 };
                 for renderer in &renderers {
                     renderer.draw(&mut builder, &dynamic_state, mvp);
