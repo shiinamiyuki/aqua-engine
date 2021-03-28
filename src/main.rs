@@ -1,3 +1,4 @@
+use glm::quat_euler_angles;
 use na::indexing;
 use render::Mesh;
 use tobj::load_obj;
@@ -47,6 +48,31 @@ pub mod render {
 
     unsafe impl bytemuck::Pod for Vertex {}
     unsafe impl bytemuck::Zeroable for Vertex {}
+
+    #[repr(C)]
+    // This is so we can store this in a buffer
+    #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+    pub struct UniformViewProjection {
+        view: [[f32; 4]; 4],
+        proj: [[f32; 4]; 4],
+        // model: [[f32; 4]; 4],
+    }
+    impl UniformViewProjection {
+        pub fn new() -> Self {
+            use nalgebra as na;
+            use nalgebra_glm as glm;
+            Self {
+                view: glm::identity::<f32, na::U4>().into(),
+                proj: glm::identity::<f32, na::U4>().into(),
+                // model: glm::identity::<f32, na::U4>().into(),
+            }
+        }
+        pub fn update_from_camera(&mut self, camera: &crate::Camera) {
+            let (view, proj) = camera.build_view_projection_matrix();
+            self.view = view.into();
+            self.proj = proj.into();
+        }
+    }
     pub struct Mesh {
         pub vertices: Vec<Vertex>,
         pub indices: Vec<u32>,
@@ -213,7 +239,9 @@ struct State {
     swap_chain: wgpu::SwapChain,
     size: winit::dpi::PhysicalSize<u32>,
     render_pipeline: wgpu::RenderPipeline,
-    // vertex_buffer: wgpu::Buffer,
+    uniform_buffer: wgpu::Buffer,
+    uniform_bind_group: wgpu::BindGroup,
+    depth_texture: Texture, // vertex_buffer: wgpu::Buffer,
 }
 
 struct MeshRenderer {
@@ -247,6 +275,88 @@ impl MeshRenderer {
     }
 }
 
+pub struct Texture {
+    pub texture: wgpu::Texture,
+    pub view: wgpu::TextureView,
+    pub sampler: wgpu::Sampler,
+}
+
+impl Texture {
+    pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float; // 1.
+
+    pub fn create_depth_texture(
+        device: &wgpu::Device,
+        sc_desc: &wgpu::SwapChainDescriptor,
+        label: &str,
+    ) -> Self {
+        let size = wgpu::Extent3d {
+            // 2.
+            width: sc_desc.width,
+            height: sc_desc.height,
+            depth: 1,
+        };
+        let desc = wgpu::TextureDescriptor {
+            label: Some(label),
+            size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: Self::DEPTH_FORMAT,
+            usage: wgpu::TextureUsage::RENDER_ATTACHMENT // 3.
+                | wgpu::TextureUsage::SAMPLED,
+        };
+        let texture = device.create_texture(&desc);
+
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            // 4.
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            compare: Some(wgpu::CompareFunction::LessEqual), // 5.
+            lod_min_clamp: -100.0,
+            lod_max_clamp: 100.0,
+            ..Default::default()
+        });
+
+        Self {
+            texture,
+            view,
+            sampler,
+        }
+    }
+}
+
+pub struct Camera {
+    pub eye: glm::Vec3,
+    pub center: glm::Vec3, // euler angle
+    pub up: glm::Vec3,
+    pub aspect: f32,
+    pub fovy: f32,
+    pub znear: f32,
+    pub zfar: f32,
+}
+#[rustfmt::skip]
+pub const OPENGL_TO_WGPU_MATRIX: [f32;16] =  [
+    1.0, 0.0, 0.0, 0.0,
+    0.0, 1.0, 0.0, 0.0,
+    0.0, 0.0, 0.5, 0.0,
+    0.0, 0.0, 0.5, 1.0
+];
+
+impl Camera {
+    fn build_view_projection_matrix(&self) -> (glm::Mat4, glm::Mat4) {
+        let view = glm::look_at(&self.eye, &self.center, &self.up);
+        let proj = glm::perspective(self.aspect, self.fovy, self.znear, self.zfar);
+        (
+            view,
+            glm::Mat4::from_row_slice(&OPENGL_TO_WGPU_MATRIX[..]) * proj,
+        )
+    }
+}
 impl State {
     // Creating some of the wgpu types requires async code
     async fn new(window: &Window) -> Self {
@@ -283,12 +393,12 @@ impl State {
         };
         let swap_chain = device.create_swap_chain(&surface, &sc_desc);
 
-        let vs_src = include_str!("shader.vert");
-        let fs_src = include_str!("shader.frag");
+        let vs_src = std::fs::read_to_string("src/shader.vert").unwrap();
+        let fs_src = std::fs::read_to_string("src/shader.frag").unwrap();
         let mut compiler = shaderc::Compiler::new().unwrap();
         let vs_spirv = compiler
             .compile_into_spirv(
-                vs_src,
+                &vs_src,
                 shaderc::ShaderKind::Vertex,
                 "shader.vert",
                 "main",
@@ -297,7 +407,7 @@ impl State {
             .unwrap();
         let fs_spirv = compiler
             .compile_into_spirv(
-                fs_src,
+                &fs_src,
                 shaderc::ShaderKind::Fragment,
                 "shader.frag",
                 "main",
@@ -316,10 +426,41 @@ impl State {
             source: fs_data,
             flags: wgpu::ShaderFlags::default(),
         });
+        let uniform_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStage::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+                label: Some("uniform_bind_group_layout"),
+            });
+        let uniforms = render::UniformViewProjection::new();
+        let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Uniform Buffer"),
+            contents: bytemuck::cast_slice(&[uniforms]),
+            usage: wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
+        });
+
+        let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &uniform_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: uniform_buffer.as_entire_binding(),
+            }],
+            label: Some("uniform_bind_group"),
+        });
+        let depth_texture = Texture::create_depth_texture(&device, &sc_desc, "depth_texture");
+
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
-                bind_group_layouts: &[],
+                bind_group_layouts: &[&uniform_bind_group_layout],
                 push_constant_ranges: &[],
             });
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -350,7 +491,15 @@ impl State {
                 // Setting this to anything other than Fill requires Features::NON_FILL_POLYGON_MODE
                 polygon_mode: wgpu::PolygonMode::Fill,
             },
-            depth_stencil: None, // 1.
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: Texture::DEPTH_FORMAT,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::Less, // 1.
+                stencil: wgpu::StencilState::default(),     // 2.
+                bias: wgpu::DepthBiasState::default(),
+                // Setting this to true requires Features::DEPTH_CLAMPING
+                clamp_depth: false,
+            }),
             multisample: wgpu::MultisampleState {
                 count: 1,                         // 2.
                 mask: !0,                         // 3.
@@ -366,7 +515,9 @@ impl State {
             swap_chain,
             size,
             render_pipeline,
-            // vertex_buffer,
+            uniform_buffer, // vertex_buffer,
+            uniform_bind_group,
+            depth_texture,
         }
     }
 
@@ -375,6 +526,8 @@ impl State {
         self.sc_desc.width = new_size.width;
         self.sc_desc.height = new_size.height;
         self.swap_chain = self.device.create_swap_chain(&self.surface, &self.sc_desc);
+        self.depth_texture =
+            Texture::create_depth_texture(&self.device, &self.sc_desc, "depth_texture");
     }
 
     fn input(&mut self, event: &WindowEvent) -> bool {
@@ -385,10 +538,18 @@ impl State {
         // todo!()
     }
 
-    fn render<'a, I>(&mut self, mesh_renderers: I) -> Result<(), wgpu::SwapChainError>
+    fn render<'a, I>(
+        &mut self,
+        camera: &Camera,
+        mesh_renderers: I,
+    ) -> Result<(), wgpu::SwapChainError>
     where
         I: std::iter::Iterator<Item = &'a MeshRenderer>,
     {
+        let mut uniforms = render::UniformViewProjection::new();
+        uniforms.update_from_camera(&camera);
+        self.queue
+            .write_buffer(&self.uniform_buffer, 0, bytemuck::cast_slice(&[uniforms]));
         let frame = self.swap_chain.get_current_frame()?.output;
         let mut encoder = self
             .device
@@ -412,13 +573,21 @@ impl State {
                         store: true,
                     },
                 }],
-                depth_stencil_attachment: None,
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachmentDescriptor {
+                    attachment: &self.depth_texture.view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: true,
+                    }),
+                    stencil_ops: None,
+                }),
             });
 
             // NEW!
             // render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
             render_pass.set_pipeline(&self.render_pipeline); // 2.
                                                              // render_pass.draw(0..3, 0..1); // 3.
+            render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
             for m in mesh_renderers {
                 render_pass.set_vertex_buffer(0, m.vertex_buffer.slice(..));
                 render_pass.set_index_buffer(m.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
@@ -442,10 +611,19 @@ fn main() {
         .into_iter()
         .map(|model| MeshRenderer::new(&mut state, &render::Mesh::from_triangle_mesh(&model)))
         .collect();
+    let camera = Camera {
+        eye: glm::vec3(0.0, 0.6, 3.0),
+        center: glm::vec3(0.0, 0.6, 2.0),
+        aspect: 16.0 / 9.0,
+        fovy: glm::pi::<f32>() / 2.0,
+        up: glm::vec3(0.0, 1.0, 0.0),
+        znear: 0.1,
+        zfar: 100.0,
+    };
     event_loop.run(move |event, _, control_flow| match event {
         Event::RedrawRequested(_) => {
             state.update();
-            let render_result = state.render(renderers.iter());
+            let render_result = state.render(&camera, renderers.iter());
             match render_result {
                 Ok(_) => {}
                 // Recreate the swap_chain if lost

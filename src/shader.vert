@@ -4,8 +4,15 @@ layout(location=1) in vec3 a_normal;
 
 layout(location=0) out vec3 v_normal;
 
+layout(set=0, binding=0)
+uniform UniformViewProj {
+    mat4 view;
+    mat4 proj;
+};
+
 void main() {
-    v_normal = normalize(a_normal);
-    gl_Position = vec4(a_position, 1.0);
+    mat4 vp = proj * view;
+    v_normal = normalize(transpose(inverse(mat3(vp))) * a_normal);
+    gl_Position = vp * vec4(a_position, 1.0);
 }
  
