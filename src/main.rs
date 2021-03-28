@@ -1,3 +1,6 @@
+use na::indexing;
+use render::Mesh;
+use tobj::load_obj;
 use winit::{
     event::*,
     event_loop::{ControlFlow, EventLoop},
@@ -19,7 +22,7 @@ pub mod render {
     #[derive(Copy, Clone, Debug)]
     pub struct Vertex {
         pub position: [f32; 3],
-        pub color: [f32; 3],
+        pub normal: [f32; 3],
     }
     impl Vertex {
         pub fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
@@ -49,23 +52,35 @@ pub mod render {
         pub indices: Vec<u32>,
     }
 
-    pub const VERTICES: &[Vertex] = &[
-        Vertex {
-            position: [0.0, 0.5, 0.0],
-            color: [1.0, 0.0, 0.0],
-        },
-        Vertex {
-            position: [-0.5, -0.5, 0.0],
-            color: [0.0, 1.0, 0.0],
-        },
-        Vertex {
-            position: [0.5, -0.5, 0.0],
-            color: [0.0, 0.0, 1.0],
-        },
-    ];
+    impl Mesh {
+        pub fn from_triangle_mesh(trig: &crate::TriangleMesh) -> Mesh {
+            if trig.vertices.len() != trig.normals.len() {
+                panic!("invalid mesh, please duplicate/merge vertices");
+            }
+            let mut vertices = vec![];
+            let mut indices = vec![];
+            for face in trig.indices.iter() {
+                indices.push(face[0]);
+                indices.push(face[1]);
+                indices.push(face[2]);
+            }
+            for i in 0..trig.vertices.len() {
+                let vert = Vertex {
+                    position: [
+                        trig.vertices[i][0],
+                        trig.vertices[i][1],
+                        trig.vertices[i][2],
+                    ],
+                    normal: [trig.normals[i][0], trig.normals[i][1], trig.normals[i][2]],
+                };
+                vertices.push(vert);
+            }
+            Mesh { vertices, indices }
+        }
+    }
 }
 
-struct TriangleMesh {
+pub struct TriangleMesh {
     vertices: Vec<glm::Vec3>,
     normals: Vec<glm::Vec3>,
     texcoords: Vec<glm::IVec2>,
@@ -198,7 +213,38 @@ struct State {
     swap_chain: wgpu::SwapChain,
     size: winit::dpi::PhysicalSize<u32>,
     render_pipeline: wgpu::RenderPipeline,
+    // vertex_buffer: wgpu::Buffer,
+}
+
+struct MeshRenderer {
     vertex_buffer: wgpu::Buffer,
+    index_buffer: wgpu::Buffer,
+    num_indices: u32,
+}
+
+impl MeshRenderer {
+    fn new(state: &mut State, mesh: &render::Mesh) -> MeshRenderer {
+        let vertex_buffer = state
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Vertex Buffer"),
+                contents: bytemuck::cast_slice(&mesh.vertices[..]),
+                usage: wgpu::BufferUsage::VERTEX,
+            });
+        let index_buffer = state
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Vertex Buffer"),
+                contents: bytemuck::cast_slice(&mesh.indices[..]),
+                usage: wgpu::BufferUsage::INDEX,
+            });
+        let num_indices = mesh.indices.len() as u32;
+        Self {
+            vertex_buffer,
+            index_buffer,
+            num_indices,
+        }
+    }
 }
 
 impl State {
@@ -311,11 +357,7 @@ impl State {
                 alpha_to_coverage_enabled: false, // 4.
             },
         });
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Vertex Buffer"),
-            contents: bytemuck::cast_slice(render::VERTICES),
-            usage: wgpu::BufferUsage::VERTEX,
-        });
+
         Self {
             surface,
             device,
@@ -324,7 +366,7 @@ impl State {
             swap_chain,
             size,
             render_pipeline,
-            vertex_buffer,
+            // vertex_buffer,
         }
     }
 
@@ -343,7 +385,10 @@ impl State {
         // todo!()
     }
 
-    fn render(&mut self) -> Result<(), wgpu::SwapChainError> {
+    fn render<'a, I>(&mut self, mesh_renderers: I) -> Result<(), wgpu::SwapChainError>
+    where
+        I: std::iter::Iterator<Item = &'a MeshRenderer>,
+    {
         let frame = self.swap_chain.get_current_frame()?.output;
         let mut encoder = self
             .device
@@ -371,9 +416,14 @@ impl State {
             });
 
             // NEW!
-            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+            // render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
             render_pass.set_pipeline(&self.render_pipeline); // 2.
-            render_pass.draw(0..3, 0..1); // 3.
+                                                             // render_pass.draw(0..3, 0..1); // 3.
+            for m in mesh_renderers {
+                render_pass.set_vertex_buffer(0, m.vertex_buffer.slice(..));
+                render_pass.set_index_buffer(m.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                render_pass.draw_indexed(0..m.num_indices, 0, 0..1); // 2.
+            }
         }
         // submit will accept anything that implements IntoIter
         self.queue.submit(std::iter::once(encoder.finish()));
@@ -387,10 +437,16 @@ fn main() {
     let window = WindowBuilder::new().build(&event_loop).unwrap();
     // Since main can't be async, we're going to need to block
     let mut state = block_on(State::new(&window));
+    let models = load_model("./living_room.obj");
+    let renderers: Vec<MeshRenderer> = models
+        .into_iter()
+        .map(|model| MeshRenderer::new(&mut state, &render::Mesh::from_triangle_mesh(&model)))
+        .collect();
     event_loop.run(move |event, _, control_flow| match event {
         Event::RedrawRequested(_) => {
             state.update();
-            match state.render() {
+            let render_result = state.render(renderers.iter());
+            match render_result {
                 Ok(_) => {}
                 // Recreate the swap_chain if lost
                 Err(wgpu::SwapChainError::Lost) => state.resize(state.size),
