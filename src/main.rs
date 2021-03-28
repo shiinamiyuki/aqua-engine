@@ -12,21 +12,57 @@ use nalgebra as na;
 use nalgebra_glm as glm;
 use std::time::Instant;
 use std::{collections::HashMap, sync::Arc};
+use wgpu::util::DeviceExt;
 type Float3 = [f32; 3];
-#[repr(C)]
-#[derive(Copy, Clone, Debug)]
-struct Vertex {
-    position: [f32; 3],
-    normal: [f32; 3],
-}
+pub mod render {
+    #[repr(C)]
+    #[derive(Copy, Clone, Debug)]
+    pub struct Vertex {
+        pub position: [f32; 3],
+        pub color: [f32; 3],
+    }
+    impl Vertex {
+        pub fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
+            wgpu::VertexBufferLayout {
+                array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
+                step_mode: wgpu::InputStepMode::Vertex,
+                attributes: &[
+                    wgpu::VertexAttribute {
+                        offset: 0,
+                        shader_location: 0,
+                        format: wgpu::VertexFormat::Float3,
+                    },
+                    wgpu::VertexAttribute {
+                        offset: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
+                        shader_location: 1,
+                        format: wgpu::VertexFormat::Float3,
+                    },
+                ],
+            }
+        }
+    }
 
-struct CompactMesh {
-    vertices: Vec<Vertex>,
-    indices: Vec<u32>,
-}
+    unsafe impl bytemuck::Pod for Vertex {}
+    unsafe impl bytemuck::Zeroable for Vertex {}
+    pub struct Mesh {
+        pub vertices: Vec<Vertex>,
+        pub indices: Vec<u32>,
+    }
 
-struct RenderMesh {
-    
+    pub const VERTICES: &[Vertex] = &[
+        Vertex {
+            position: [0.0, 0.5, 0.0],
+            color: [1.0, 0.0, 0.0],
+        },
+        Vertex {
+            position: [-0.5, -0.5, 0.0],
+            color: [0.0, 1.0, 0.0],
+        },
+        Vertex {
+            position: [0.5, -0.5, 0.0],
+            color: [0.0, 0.0, 1.0],
+        },
+    ];
 }
 
 struct TriangleMesh {
@@ -162,6 +198,7 @@ struct State {
     swap_chain: wgpu::SwapChain,
     size: winit::dpi::PhysicalSize<u32>,
     render_pipeline: wgpu::RenderPipeline,
+    vertex_buffer: wgpu::Buffer,
 }
 
 impl State {
@@ -244,8 +281,8 @@ impl State {
             layout: Some(&render_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &vs_module,
-                entry_point: "main", // 1.
-                buffers: &[],        // 2.
+                entry_point: "main",                // 1.
+                buffers: &[render::Vertex::desc()], // 2.
             },
             fragment: Some(wgpu::FragmentState {
                 // 3.
@@ -274,6 +311,11 @@ impl State {
                 alpha_to_coverage_enabled: false, // 4.
             },
         });
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Vertex Buffer"),
+            contents: bytemuck::cast_slice(render::VERTICES),
+            usage: wgpu::BufferUsage::VERTEX,
+        });
         Self {
             surface,
             device,
@@ -282,6 +324,7 @@ impl State {
             swap_chain,
             size,
             render_pipeline,
+            vertex_buffer,
         }
     }
 
@@ -328,6 +371,7 @@ impl State {
             });
 
             // NEW!
+            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
             render_pass.set_pipeline(&self.render_pipeline); // 2.
             render_pass.draw(0..3, 0..1); // 3.
         }
