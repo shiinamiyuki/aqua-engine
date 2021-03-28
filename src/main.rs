@@ -603,7 +603,9 @@ impl State {
 fn main() {
     env_logger::init();
     let event_loop = EventLoop::new();
-    let window = WindowBuilder::new().build(&event_loop).unwrap();
+    let window = WindowBuilder::new().with_title(String::from("Arukas Engine"))
+        .build(&event_loop)
+        .unwrap();
     // Since main can't be async, we're going to need to block
     let mut state = block_on(State::new(&window));
     let models = load_model("./living_room.obj");
