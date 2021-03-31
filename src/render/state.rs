@@ -28,7 +28,20 @@ impl State {
 
         // The instance is a handle to our GPU
         // BackendBit::PRIMARY => Vulkan + Metal + DX12 + Browser WebGPU
-        let instance = wgpu::Instance::new(wgpu::BackendBit::PRIMARY);
+        let backend = if let Ok(backend) = std::env::var("WGPU_BACKEND") {
+            match backend.to_lowercase().as_str() {
+                "vulkan" => wgpu::BackendBit::VULKAN,
+                "metal" => wgpu::BackendBit::METAL,
+                "dx12" => wgpu::BackendBit::DX12,
+                "dx11" => wgpu::BackendBit::DX11,
+                "gl" => wgpu::BackendBit::GL,
+                "webgpu" => wgpu::BackendBit::BROWSER_WEBGPU,
+                other => panic!("Unknown backend: {}", other)
+            }
+        } else {
+            wgpu::BackendBit::PRIMARY
+        };
+        let instance = wgpu::Instance::new(backend);
         let surface = unsafe { instance.create_surface(window) };
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
@@ -41,7 +54,7 @@ impl State {
             .request_device(
                 &wgpu::DeviceDescriptor {
                     features: wgpu::Features::empty()
-                        | wgpu::Features::UNSIZED_BINDING_ARRAY
+                        // | wgpu::Features::UNSIZED_BINDING_ARRAY
                         | wgpu::Features::SAMPLED_TEXTURE_ARRAY_NON_UNIFORM_INDEXING
                         | wgpu::Features::SAMPLED_TEXTURE_ARRAY_DYNAMIC_INDEXING
                         | wgpu::Features::PUSH_CONSTANTS,
