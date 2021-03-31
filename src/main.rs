@@ -1,6 +1,8 @@
 use glm::quat_euler_angles;
 use na::indexing;
+
 pub mod render;
+
 use crate::render::mesh::{Mesh, MeshRenderer};
 use crate::render::camera::Camera;
 use crate::render::state::{State};
@@ -36,6 +38,7 @@ struct MVP {
     view: glm::Mat4,
     projection: glm::Mat4,
 }
+
 fn compute_normals(model: &mut TriangleMesh) {
     model.normals.clear();
     model.normal_indices.clear();
@@ -75,6 +78,7 @@ fn compute_normals(model: &mut TriangleMesh) {
         })
         .collect();
 }
+
 fn load_model(obj_file: &str) -> Vec<TriangleMesh> {
     let (models, materials) = tobj::load_obj(&obj_file, true).expect("Failed to load file");
 
@@ -147,8 +151,6 @@ fn load_model(obj_file: &str) -> Vec<TriangleMesh> {
 }
 
 
-
-
 fn main() {
     env_logger::init();
     let event_loop = EventLoop::new();
@@ -157,7 +159,12 @@ fn main() {
         .unwrap();
     // Since main can't be async, we're going to need to block
     let mut state = block_on(State::new(&window));
-    let models = load_model("./living_room.obj");
+    let args: Vec<String> = std::env::args().collect();
+    let models = if args.len() > 1 {
+        load_model(&args[1])
+    } else {
+        load_model("./living_room.obj")
+    };
     let renderers: Vec<MeshRenderer> = models
         .into_iter()
         .map(|model| MeshRenderer::new(&mut state, &Mesh::from_triangle_mesh(&model)))

@@ -43,9 +43,18 @@ impl State {
         };
         let instance = wgpu::Instance::new(backend);
         let surface = unsafe { instance.create_surface(window) };
+        let power_pref = if let Ok(pref) = std::env::var("WGPU_POWER_PREF") {
+            match pref.to_lowercase().as_str() {
+                "low" => wgpu::PowerPreference::LowPower,
+                "high" => wgpu::PowerPreference::HighPerformance,
+                other => panic!("Unnknown power preference: {}", pref)
+            }
+        } else {
+            wgpu::PowerPreference::default()
+        };
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::default(),
+                power_preference: power_pref,
                 compatible_surface: Some(&surface),
             })
             .await
