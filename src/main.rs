@@ -159,8 +159,8 @@ fn main() {
         .unwrap();
     // Since main can't be async, we're going to need to block
     let mut state = block_on(State::new(&window));
-    let args: Vec<String> = std::env::args().collect();
-    let models = if args.len() > 1 {
+    let models = if std::env::args().count() > 1 {
+        let args: Vec<String> = std::env::args().collect();
         load_model(&args[1])
     } else {
         load_model("./living_room.obj")
