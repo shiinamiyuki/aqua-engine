@@ -278,6 +278,7 @@ impl State {
             render_pass.set_pipeline(&self.render_pipeline); // 2.
                                                              // render_pass.draw(0..3, 0..1); // 3.
             render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
+            
             for m in mesh_renderers {
                 m.render(&mut render_pass);
             }
