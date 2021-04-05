@@ -2,6 +2,7 @@ use glm::quat_euler_angles;
 use na::indexing;
 
 pub mod render;
+pub mod geometry;
 
 use crate::render::mesh::{Mesh, MeshRenderer};
 use crate::render::camera::Camera;
@@ -150,78 +151,3 @@ fn load_model(obj_file: &str) -> Vec<TriangleMesh> {
     imported_models
 }
 
-
-fn main() {
-    env_logger::init();
-    let event_loop = EventLoop::new();
-    let window = WindowBuilder::new().with_title(String::from("Arukas Engine"))
-        .build(&event_loop)
-        .unwrap();
-    // Since main can't be async, we're going to need to block
-    let mut state = block_on(State::new(&window));
-    let models = if std::env::args().count() > 1 {
-        let args: Vec<String> = std::env::args().collect();
-        load_model(&args[1])
-    } else {
-        load_model("./living_room.obj")
-    };
-    let renderers: Vec<MeshRenderer> = models
-        .into_iter()
-        .map(|model| MeshRenderer::new(&mut state, &Mesh::from_triangle_mesh(&model)))
-        .collect();
-    let camera = Camera {
-        eye: glm::vec3(0.0, 0.6, 3.0),
-        center: glm::vec3(0.0, 0.6, 2.0),
-        aspect: 16.0 / 9.0,
-        fovy: glm::pi::<f32>() / 2.0,
-        up: glm::vec3(0.0, 1.0, 0.0),
-        znear: 0.1,
-        zfar: 100.0,
-    };
-    event_loop.run(move |event, _, control_flow| match event {
-        Event::RedrawRequested(_) => {
-            state.update();
-            let render_result = state.render(&camera, renderers.iter());
-            match render_result {
-                Ok(_) => {}
-                // Recreate the swap_chain if lost
-                Err(wgpu::SwapChainError::Lost) => state.resize(state.size),
-                // The system is out of memory, we should probably quit
-                Err(wgpu::SwapChainError::OutOfMemory) => *control_flow = ControlFlow::Exit,
-                // All other errors (Outdated, Timeout) should be resolved by the next frame
-                Err(e) => eprintln!("{:?}", e),
-            }
-        }
-        Event::MainEventsCleared => {
-            // RedrawRequested will only trigger once, unless we manually
-            // request it.
-            window.request_redraw();
-        }
-        Event::WindowEvent {
-            ref event,
-            window_id,
-        } if window_id == window.id() => {
-            if !state.input(event) {
-                match event {
-                    WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
-                    WindowEvent::KeyboardInput { input, .. } => match input {
-                        KeyboardInput {
-                            state: ElementState::Pressed,
-                            virtual_keycode: Some(VirtualKeyCode::Escape),
-                            ..
-                        } => *control_flow = ControlFlow::Exit,
-                        _ => {}
-                    },
-                    WindowEvent::Resized(physical_size) => {
-                        state.resize(*physical_size);
-                    }
-                    WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
-                        state.resize(**new_inner_size);
-                    }
-                    _ => {}
-                }
-            }
-        }
-        _ => {}
-    });
-}
