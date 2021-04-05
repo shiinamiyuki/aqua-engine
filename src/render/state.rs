@@ -217,7 +217,7 @@ impl State {
         self.sc_desc.height = new_size.height;
         self.swap_chain = self.device.create_swap_chain(&self.surface, &self.sc_desc);
         self.depth_texture =
-            Texture::create_depth_texture(&self.device, &self.sc_desc, "depth_texture");
+            Texture::create_depth_texture_from_sc(&self.device, &self.sc_desc, "depth_texture");
     }
 
     pub fn input(&mut self, event: &WindowEvent) -> bool {

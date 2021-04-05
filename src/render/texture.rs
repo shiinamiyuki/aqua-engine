@@ -1,22 +1,40 @@
-
+use super::glm;
+use super::Size;
+pub struct TextureView {
+    pub view: wgpu::TextureView,
+}
+impl Into<wgpu::TextureView> for TextureView {
+    fn into(self) -> wgpu::TextureView {
+        self.view
+    }
+}
 pub struct Texture {
     pub texture: wgpu::Texture,
-    pub view: wgpu::TextureView,
     pub sampler: wgpu::Sampler,
 }
 
 impl Texture {
     pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float; // 1.
-
-    pub fn create_depth_texture(
+    pub fn create_depth_texture_from_sc(
         device: &wgpu::Device,
         sc_desc: &wgpu::SwapChainDescriptor,
         label: &str,
     ) -> Self {
+        Self::create_depth_texture_with_size(
+            &device,
+            &Size(sc_desc.width, sc_desc.height),
+            label,
+        )
+    }
+    pub fn create_depth_texture_with_size(
+        device: &wgpu::Device,
+        size: &Size,
+        label: &str,
+    ) -> Self {
         let size = wgpu::Extent3d {
             // 2.
-            width: sc_desc.width,
-            height: sc_desc.height,
+            width: size.0,  //sc_desc.width,
+            height: size.1, //sc_desc.height,
             depth: 1,
         };
         let desc = wgpu::TextureDescriptor {
@@ -31,7 +49,6 @@ impl Texture {
         };
         let texture = device.create_texture(&desc);
 
-        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             // 4.
             address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -46,11 +63,13 @@ impl Texture {
             ..Default::default()
         });
 
-        Self {
-            texture,
-            view,
-            sampler,
+        Self { texture, sampler }
+    }
+    pub fn view(&self) -> TextureView {
+        TextureView {
+            view: self
+                .texture
+                .create_view(&wgpu::TextureViewDescriptor::default()),
         }
     }
 }
-

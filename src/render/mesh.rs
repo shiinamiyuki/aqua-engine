@@ -62,14 +62,14 @@ impl Mesh {
     }
 }
 
-pub struct MeshRenderer {
+pub struct GPUMesh {
     pub vertex_buffer: wgpu::Buffer,
     pub index_buffer: wgpu::Buffer,
     pub num_indices: u32,
 }
 
-impl MeshRenderer {
-    pub fn new(state: &mut State, mesh: &Mesh) -> MeshRenderer {
+impl GPUMesh {
+    pub fn new(state: &mut State, mesh: &Mesh) -> GPUMesh {
         let vertex_buffer = state
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
