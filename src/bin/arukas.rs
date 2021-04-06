@@ -1,11 +1,4 @@
-use arukas::{
-    geometry::load_model,
-    glm,
-    render::{
-        Camera, ColorAttachment, Mesh, RenderContext, RenderInput, RenderPass, SimpleRenderPass,
-        Size,
-    },
-};
+use arukas::{geometry::load_model, glm, render::{Camera, ColorAttachment, LookAtCamera, Mesh, OribitalCamera, Perspective, RenderContext, RenderInput, RenderPass, SimpleRenderPass, Size}};
 
 use arukas::render::GPUMesh;
 use winit::{
@@ -26,7 +19,7 @@ struct App {
     ctx: RenderContext,
     size: winit::dpi::PhysicalSize<u32>,
     gpu_meshes: Vec<GPUMesh>,
-    camera: Camera,
+    camera: LookAtCamera,
     render_pass: SimpleRenderPass,
 }
 impl App {
@@ -42,14 +35,17 @@ impl App {
             .into_iter()
             .map(|model| GPUMesh::new(&mut ctx, &Mesh::from_triangle_mesh(&model)))
             .collect();
-        let camera = Camera {
+        let camera = LookAtCamera {
             eye: glm::vec3(0.0, 0.6, 3.0),
             center: glm::vec3(0.0, 0.6, 2.0),
-            aspect: 16.0 / 9.0,
-            fovy: glm::pi::<f32>() / 2.0,
             up: glm::vec3(0.0, 1.0, 0.0),
-            znear: 0.1,
-            zfar: 100.0,
+            perspective: Perspective {
+                aspect: 16.0 / 9.0,
+                fovy: glm::pi::<f32>() / 2.0,
+
+                znear: 0.1,
+                zfar: 100.0,
+            },
         };
         let render_pass = SimpleRenderPass::new(&ctx);
         App {
@@ -60,8 +56,20 @@ impl App {
             render_pass,
         }
     }
-    fn input(&self, _event: &WindowEvent) -> bool {
-        false
+    fn input(&self, event: &WindowEvent) -> bool {
+        match event {
+            WindowEvent::CursorMoved {
+                device_id: _,
+                position,
+                modifiers: _,
+            } => true,
+            WindowEvent::KeyboardInput {
+                device_id: _,
+                input,
+                is_synthetic,
+            } => false,
+            _ => false,
+        }
     }
     fn resize(&mut self, size: winit::dpi::PhysicalSize<u32>) {
         self.size = size;
@@ -70,9 +78,7 @@ impl App {
     fn render(&mut self) -> Result<(), wgpu::SwapChainError> {
         let frame = self.ctx.swap_chain.get_current_frame()?.output;
         let input = RenderInput {
-            attachements: vec![ColorAttachment {
-                view: &frame.view,
-            }],
+            attachements: vec![ColorAttachment { view: &frame.view }],
             meshes: &self.gpu_meshes[..],
         };
         self.render_pass.render(
@@ -81,7 +87,7 @@ impl App {
             &self.camera,
             &input,
         );
-        
+
         Ok(())
     }
     fn update(&mut self) {}
@@ -91,6 +97,8 @@ fn main() {
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
         .with_title(String::from("Arukas Engine"))
+        .with_resizable(false)
+        .with_inner_size(winit::dpi::PhysicalSize::<u32>::new(1280,720))
         .build(&event_loop)
         .unwrap();
     // Since main can't be async, we're going to need to block

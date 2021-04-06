@@ -33,7 +33,7 @@ pub trait RenderPass {
         &mut self,
         size: Size,
         ctx: &mut RenderContext,
-        camera: &Camera,
+        camera: &dyn Camera,
         input: &RenderInput<'a, 'b>,
     );
 }
@@ -49,7 +49,7 @@ impl RenderPass for SimpleRenderPass {
         &mut self,
         size: Size,
         ctx: &mut RenderContext,
-        camera: &Camera,
+        camera: &dyn Camera,
         input: &RenderInput<'a, 'b>,
     ) {
         if self.size != size {
@@ -98,6 +98,11 @@ impl RenderPass for SimpleRenderPass {
                 &self.camera_uniform.bind_group,
                 &[],
             );
+            for m in input.meshes {
+                render_pass.set_vertex_buffer(0, m.vertex_buffer.slice(..));
+                render_pass.set_index_buffer(m.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                render_pass.draw_indexed(0..m.num_indices, 0, 0..1); // 2.
+            }
         }
         ctx.queue.submit(std::iter::once(encoder.finish()));
     }
