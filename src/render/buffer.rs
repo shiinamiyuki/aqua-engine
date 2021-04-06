@@ -5,7 +5,7 @@ use wgpu::util::DeviceExt;
 use super::RenderContext;
 pub trait BufferData: Default + Copy + Clone + bytemuck::Pod + bytemuck::Zeroable {
     type Native;
-    fn new(value: &Self::Native)->Self;
+    fn new(value: &Self::Native) -> Self;
 }
 
 pub fn create_uniform_bind_group_layout(
@@ -30,13 +30,36 @@ pub fn create_uniform_bind_group_layout(
         })
 }
 
+pub fn create_storage_bind_group_layout(
+    ctx: &RenderContext,
+    binding: u32,
+    visibility: wgpu::ShaderStage,
+    read_only: bool,
+    label: Option<&str>,
+) -> wgpu::BindGroupLayout {
+    ctx.device
+        .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding,
+                visibility,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+            label,
+        })
+}
+
 pub struct Buffer<T>
 where
     T: BufferData,
 {
     pub buffer: wgpu::Buffer,
     pub bind_group: wgpu::BindGroup,
-    pub binding:u32,
+    pub binding: u32,
     pub layout: wgpu::BindGroupLayout,
     marker: PhantomData<T>,
 }
@@ -51,45 +74,15 @@ where
         init: &[T],
         label: Option<&str>,
     ) -> Self {
-        Self::new(
-            ctx,
-            binding,
-            visibility,
-            wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
-            &init,
-            label,
-        )
-    }
-    pub fn new_storage_buffer(
-        ctx: &RenderContext,
-        binding: u32,
-        visibility: wgpu::ShaderStage,
-        init: &[T],
-        label: Option<&str>,
-    ) -> Self {
-        Self::new(
-            ctx,
-            binding,
-            visibility,
-            wgpu::BufferUsage::STORAGE | wgpu::BufferUsage::COPY_DST,
-            &init,
-            label,
-        )
-    }
-    pub fn new(
-        ctx: &RenderContext,
-        binding: u32,
-        visibility: wgpu::ShaderStage,
-        usage: wgpu::BufferUsage,
-        init: &[T],
-        label: Option<&str>,
-    ) -> Self {
         let device = &ctx.device;
         let layout = create_uniform_bind_group_layout(ctx, binding, visibility, label);
         let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Buffer"),
+            label: label.map(|s: &str| {
+                s.to_owned().push_str(".uniform");
+                s
+            }),
             contents: bytemuck::cast_slice(init),
-            usage: usage, //wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
+            usage: wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
         });
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &layout,
@@ -97,7 +90,10 @@ where
                 binding: binding,
                 resource: buffer.as_entire_binding(),
             }],
-            label: Some("buffer_bind_group"),
+            label: label.map(|s: &str| {
+                s.to_owned().push_str(".uniform_bind_group");
+                s
+            }),
         });
         Self {
             buffer,
@@ -107,6 +103,46 @@ where
             marker: PhantomData,
         }
     }
+    pub fn new_storage_buffer(
+        ctx: &RenderContext,
+        binding: u32,
+        visibility: wgpu::ShaderStage,
+        read_only: bool,
+        init: &[T],
+        label: Option<&str>,
+    ) -> Self {
+        let device = &ctx.device;
+        let layout = create_storage_bind_group_layout(ctx, binding, visibility, read_only, label);
+        let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: label.map(|s: &str| {
+                s.to_owned().push_str(".buffer");
+                s
+            }),
+            contents: bytemuck::cast_slice(init),
+            usage: wgpu::BufferUsage::STORAGE
+                | wgpu::BufferUsage::COPY_DST
+                | wgpu::BufferUsage::COPY_SRC,
+        });
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: binding,
+                resource: buffer.as_entire_binding(),
+            }],
+            label: label.map(|s: &str| {
+                s.to_owned().push_str(".buffer_bind_group");
+                s
+            }),
+        });
+        Self {
+            buffer,
+            bind_group,
+            layout,
+            binding,
+            marker: PhantomData,
+        }
+    }
+
     pub fn upload(&self, ctx: &RenderContext, values: &[T]) {
         ctx.queue
             .write_buffer(&self.buffer, 0, bytemuck::cast_slice(values));

@@ -1,26 +1,27 @@
 use nalgebra_glm as glm;
 
+use super::BufferData;
+
 #[repr(C)]
-#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct PointLightPod {
+#[derive(Default, Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct PointLightData {
     pub position: [f32; 3],
-    pub color: [f32; 3],
+    pub _pad0: f32,
+    pub emission: [f32; 3],
 }
 
 pub struct PointLight {
     pub position: glm::Vec3,
-    pub color: glm::Vec3,
+    pub emission: glm::Vec3,
 }
 
-impl From<PointLight> for PointLightPod {
-    fn from(item: PointLight) -> Self {
+impl BufferData for PointLightData {
+    type Native = PointLight;
+    fn new(value: &Self::Native) -> Self {
         Self {
-            position: item.position.into(),
-            color: item.color.into(),
+            position: value.position.into(),
+            emission: value.emission.into(),
+            _pad0:0.0,
         }
     }
 }
-
-// pub struct AreaLight {
-    
-// }

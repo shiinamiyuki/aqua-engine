@@ -1,8 +1,8 @@
-use env_logger::fmt::Color;
-
-use super::{Buffer, BufferData, Texture, UniformViewProjection, Vertex};
+use super::{Buffer, BufferData, PointLight, Texture, UniformViewProjection, Vertex};
 use super::{Camera, GPUMesh, Size};
-use super::{RenderContext};
+use super::{PointLightData, RenderContext};
+use crate::glm;
+use env_logger::fmt::Color;
 
 pub struct ColorAttachment<'a> {
     pub view: &'a wgpu::TextureView,
@@ -43,6 +43,8 @@ pub struct SimpleRenderPass {
     depth_texture: Texture,
     camera_uniform: Buffer<UniformViewProjection>,
     size: Size,
+    light: PointLight,
+    light_buffer: Buffer<PointLightData>,
 }
 impl RenderPass for SimpleRenderPass {
     fn render<'a, 'b>(
@@ -63,6 +65,8 @@ impl RenderPass for SimpleRenderPass {
                 &camera.build_view_projection_matrix(),
             )],
         );
+        self.light_buffer
+            .upload(ctx, &[PointLightData::new(&self.light)]);
         let mut encoder = ctx
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -93,11 +97,8 @@ impl RenderPass for SimpleRenderPass {
             render_pass.set_pipeline(&self.pipeline); // 2.
                                                       // render_pass.draw(0..3, 0..1); // 3.
                                                       // render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
-            render_pass.set_bind_group(
-                self.camera_uniform.binding,
-                &self.camera_uniform.bind_group,
-                &[],
-            );
+            render_pass.set_bind_group(0, &self.camera_uniform.bind_group, &[]);
+            render_pass.set_bind_group(1, &self.light_buffer.bind_group, &[]);
             for m in input.meshes {
                 render_pass.set_vertex_buffer(0, m.vertex_buffer.slice(..));
                 render_pass.set_index_buffer(m.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
@@ -149,14 +150,25 @@ impl SimpleRenderPass {
         let camera_uniform = Buffer::<UniformViewProjection>::new_uniform_buffer(
             ctx,
             0,
-            wgpu::ShaderStage::VERTEX,
+            wgpu::ShaderStage::FRAGMENT | wgpu::ShaderStage::VERTEX,
             &[UniformViewProjection::default()],
             None,
+        );
+        let point_light = PointLight {
+            position: glm::vec3(0.0, 1.2, 2.0),
+            emission: glm::vec3(1.0, 1.0, 1.0),
+        };
+        let light_buffer = Buffer::<PointLightData>::new_uniform_buffer(
+            ctx,
+            0,
+            wgpu::ShaderStage::FRAGMENT | wgpu::ShaderStage::VERTEX,
+            &[PointLightData::new(&point_light)],
+            Some("light"),
         );
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
-                bind_group_layouts: &[&camera_uniform.layout],
+                bind_group_layouts: &[&camera_uniform.layout,&light_buffer.layout],
                 push_constant_ranges: &[],
             });
         let depth_texture =
@@ -204,11 +216,14 @@ impl SimpleRenderPass {
                 alpha_to_coverage_enabled: false, // 4.
             },
         });
+        
         Self {
             pipeline: render_pipeline,
             depth_texture,
             camera_uniform,
             size,
+            light: point_light,
+            light_buffer,
         }
     }
 }
