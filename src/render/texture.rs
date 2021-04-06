@@ -1,13 +1,17 @@
-use super::glm;
 use super::Size;
-pub struct TextureView {
-    pub view: wgpu::TextureView,
-}
-impl Into<wgpu::TextureView> for TextureView {
-    fn into(self) -> wgpu::TextureView {
-        self.view
-    }
-}
+// pub struct TextureView {
+//     pub view: wgpu::TextureView,
+// }
+// impl TextureView {
+//     pub fn get(&self) -> &wgpu::TextureView {
+//         &self.view
+//     }
+// }
+// impl From<wgpu::TextureView> for TextureView {
+//     fn from(view: wgpu::TextureView) -> Self {
+//         Self { view }
+//     }
+// }
 pub struct Texture {
     pub texture: wgpu::Texture,
     pub sampler: wgpu::Sampler,
@@ -20,17 +24,9 @@ impl Texture {
         sc_desc: &wgpu::SwapChainDescriptor,
         label: &str,
     ) -> Self {
-        Self::create_depth_texture_with_size(
-            &device,
-            &Size(sc_desc.width, sc_desc.height),
-            label,
-        )
+        Self::create_depth_texture_with_size(&device, &Size(sc_desc.width, sc_desc.height), label)
     }
-    pub fn create_depth_texture_with_size(
-        device: &wgpu::Device,
-        size: &Size,
-        label: &str,
-    ) -> Self {
+    pub fn create_depth_texture_with_size(device: &wgpu::Device, size: &Size, label: &str) -> Self {
         let size = wgpu::Extent3d {
             // 2.
             width: size.0,  //sc_desc.width,
@@ -65,11 +61,8 @@ impl Texture {
 
         Self { texture, sampler }
     }
-    pub fn view(&self) -> TextureView {
-        TextureView {
-            view: self
-                .texture
-                .create_view(&wgpu::TextureViewDescriptor::default()),
-        }
+    pub fn view(&self) -> wgpu::TextureView {
+        self.texture
+            .create_view(&wgpu::TextureViewDescriptor::default())
     }
 }

@@ -1,5 +1,8 @@
-use crate::render::state::State;
 use wgpu::util::DeviceExt;
+
+use crate::geometry::TriangleMesh;
+
+use super::RenderContext;
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
 pub struct Vertex {
@@ -36,7 +39,7 @@ pub struct Mesh {
 }
 
 impl Mesh {
-    pub fn from_triangle_mesh(trig: &crate::TriangleMesh) -> Mesh {
+    pub fn from_triangle_mesh(trig: &TriangleMesh) -> Mesh {
         if trig.vertices.len() != trig.normals.len() {
             panic!("invalid mesh, please duplicate/merge vertices");
         }
@@ -69,15 +72,15 @@ pub struct GPUMesh {
 }
 
 impl GPUMesh {
-    pub fn new(state: &mut State, mesh: &Mesh) -> GPUMesh {
-        let vertex_buffer = state
+    pub fn new(ctx: &mut RenderContext, mesh: &Mesh) -> GPUMesh {
+        let vertex_buffer = ctx
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("Vertex Buffer"),
                 contents: bytemuck::cast_slice(&mesh.vertices[..]),
                 usage: wgpu::BufferUsage::VERTEX,
             });
-        let index_buffer = state
+        let index_buffer = ctx
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("Vertex Buffer"),

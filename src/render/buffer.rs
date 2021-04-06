@@ -5,7 +5,7 @@ use wgpu::util::DeviceExt;
 use super::RenderContext;
 pub trait BufferData: Default + Copy + Clone + bytemuck::Pod + bytemuck::Zeroable {
     type Native;
-    fn update(&mut self, value: &Self::Native);
+    fn new(value: &Self::Native)->Self;
 }
 
 pub fn create_uniform_bind_group_layout(
