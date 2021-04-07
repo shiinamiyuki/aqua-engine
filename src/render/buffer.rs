@@ -2,14 +2,14 @@ use std::marker::PhantomData;
 
 use wgpu::util::DeviceExt;
 
-use super::RenderContext;
+use super::{DeviceContext, RenderContext};
 pub trait BufferData: Default + Copy + Clone + bytemuck::Pod + bytemuck::Zeroable {
     type Native;
     fn new(value: &Self::Native) -> Self;
 }
 
 pub fn create_uniform_bind_group_layout(
-    ctx: &RenderContext,
+    ctx: &DeviceContext,
     binding: u32,
     visibility: wgpu::ShaderStage,
     label: Option<&str>,
@@ -31,7 +31,7 @@ pub fn create_uniform_bind_group_layout(
 }
 
 pub fn create_storage_bind_group_layout(
-    ctx: &RenderContext,
+    ctx: &DeviceContext,
     binding: u32,
     visibility: wgpu::ShaderStage,
     read_only: bool,
@@ -68,7 +68,7 @@ where
     T: BufferData,
 {
     pub fn new_uniform_buffer(
-        ctx: &RenderContext,
+        ctx: &DeviceContext,
         binding: u32,
         visibility: wgpu::ShaderStage,
         init: &[T],
@@ -104,7 +104,7 @@ where
         }
     }
     pub fn new_storage_buffer(
-        ctx: &RenderContext,
+        ctx: &DeviceContext,
         binding: u32,
         visibility: wgpu::ShaderStage,
         read_only: bool,
@@ -143,7 +143,7 @@ where
         }
     }
 
-    pub fn upload(&self, ctx: &RenderContext, values: &[T]) {
+    pub fn upload(&self, ctx: &DeviceContext, values: &[T]) {
         ctx.queue
             .write_buffer(&self.buffer, 0, bytemuck::cast_slice(values));
     }

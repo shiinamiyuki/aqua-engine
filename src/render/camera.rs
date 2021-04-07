@@ -102,7 +102,11 @@ impl Camera for LookAtCamera {
 
 impl Camera for OribitalCamera {
     fn build_view_projection_matrix(&self) -> ViewProjection {
-        let dir = glm::vec3(self.phi.sin(), self.theta.cos(), self.phi.cos());
+        let dir = glm::vec3(
+            self.phi.sin() * self.theta.sin(),
+            self.theta.cos(),
+            self.phi.cos() * self.theta.sin(),
+        );
         let eye = self.center + self.radius * dir;
         let view = glm::look_at(&eye, &self.center, &glm::vec3(0.0, 1.0, 0.0));
         let proj = glm::perspective(

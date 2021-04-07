@@ -1,8 +1,13 @@
+use wgpu::SwapChainTexture;
 use winit::window::Window;
-pub struct RenderContext {
-    pub surface: wgpu::Surface,
+
+pub struct DeviceContext {
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
+}
+pub struct RenderContext {
+    pub device_ctx: DeviceContext,
+    pub surface: wgpu::Surface,
     pub sc_desc: wgpu::SwapChainDescriptor,
     pub swap_chain: wgpu::SwapChain,
     pub size: winit::dpi::PhysicalSize<u32>,
@@ -69,11 +74,11 @@ impl RenderContext {
         };
         let swap_chain = device.create_swap_chain(&surface, &sc_desc);
         Self {
-            device,
+            device_ctx: DeviceContext { device, queue },
             surface,
             sc_desc,
             swap_chain,
-            queue,
+
             size,
         }
     }
@@ -81,6 +86,10 @@ impl RenderContext {
         self.size = new_size;
         self.sc_desc.width = new_size.width;
         self.sc_desc.height = new_size.height;
-        self.swap_chain = self.device.create_swap_chain(&self.surface, &self.sc_desc);
+        self.swap_chain = self.device_ctx.device.create_swap_chain(&self.surface, &self.sc_desc);
     }
+}
+
+pub struct FrameContext {
+    pub frame: SwapChainTexture,
 }

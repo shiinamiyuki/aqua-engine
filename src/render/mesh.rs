@@ -2,7 +2,7 @@ use wgpu::util::DeviceExt;
 
 use crate::geometry::TriangleMesh;
 
-use super::RenderContext;
+use super::{DeviceContext, RenderContext};
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
 pub struct Vertex {
@@ -72,7 +72,7 @@ pub struct GPUMesh {
 }
 
 impl GPUMesh {
-    pub fn new(ctx: &mut RenderContext, mesh: &Mesh) -> GPUMesh {
+    pub fn new(ctx: &mut DeviceContext, mesh: &Mesh) -> GPUMesh {
         let vertex_buffer = ctx
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {

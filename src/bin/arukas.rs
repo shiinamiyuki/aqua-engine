@@ -1,6 +1,16 @@
-use arukas::{geometry::load_model, glm, render::{Camera, ColorAttachment, LookAtCamera, Mesh, OribitalCamera, Perspective, RenderContext, RenderInput, RenderPass, SimpleRenderPass, Size, fovx_to_fovy}};
+use arukas::{
+    geometry::load_model,
+    glm,
+    render::{
+        fovx_to_fovy,
+        passes::{self, GBuffer},
+        Camera, ColorAttachment, FrameContext, LookAtCamera, Mesh, OribitalCamera, Perspective,
+        RenderContext, RenderPass, SimpleRenderPass, SimpleRenderPassInput, Size, Texture,
+    },
+};
 
 use arukas::render::GPUMesh;
+use passes::GBufferPassInput;
 use winit::{
     event::*,
     event_loop::{ControlFlow, EventLoop},
@@ -18,9 +28,11 @@ use wgpu::util::DeviceExt;
 struct App {
     ctx: RenderContext,
     size: winit::dpi::PhysicalSize<u32>,
-    gpu_meshes: Vec<GPUMesh>,
+    gpu_meshes: Vec<Arc<GPUMesh>>,
     camera: OribitalCamera,
-    render_pass: SimpleRenderPass,
+    simple_render_pass: SimpleRenderPass,
+    gbuffer_render_pass: passes::GBufferPass,
+    gbuffer: GBuffer,
     last_cursor_pos: Option<winit::dpi::PhysicalPosition<f64>>,
     is_key_down: bool,
 }
@@ -33,9 +45,14 @@ impl App {
         } else {
             load_model("./living_room.obj")
         };
-        let gpu_meshes: Vec<GPUMesh> = models
+        let gpu_meshes: Vec<Arc<GPUMesh>> = models
             .into_iter()
-            .map(|model| GPUMesh::new(&mut ctx, &Mesh::from_triangle_mesh(&model)))
+            .map(|model| {
+                Arc::new(GPUMesh::new(
+                    &mut ctx.device_ctx,
+                    &Mesh::from_triangle_mesh(&model),
+                ))
+            })
             .collect();
         // let camera = LookAtCamera {
         //     eye: glm::vec3(0.0, 0.6, 3.0),
@@ -64,15 +81,37 @@ impl App {
             phi: 0.0,
             theta: glm::pi::<f32>() * 0.5,
         };
-        let render_pass = SimpleRenderPass::new(&ctx);
+        let simple_render_pass = SimpleRenderPass::new(&ctx);
+        let gbuffer_render_pass = passes::GBufferPass::new(&ctx);
+        let gbuffer = GBuffer {
+            depth: Arc::new(Texture::create_depth_texture_from_sc(
+                &ctx.device_ctx.device,
+                &ctx.sc_desc,
+                "gbuffer.depth",
+            )),
+            normal: Arc::new(Texture::create_color_attachment(
+                &ctx.device_ctx.device,
+                &Size(ctx.sc_desc.width, ctx.sc_desc.height),
+                wgpu::TextureFormat::Rgba32Float,
+                "gbuffer.normal",
+            )),
+            world_pos: Arc::new(Texture::create_color_attachment(
+                &ctx.device_ctx.device,
+                &Size(ctx.sc_desc.width, ctx.sc_desc.height),
+                wgpu::TextureFormat::Rgba32Float,
+                "gbuffer.world_pos",
+            )),
+        };
         App {
             ctx,
             size: window.inner_size(),
             gpu_meshes,
             camera,
-            render_pass,
+            simple_render_pass,
+            gbuffer_render_pass,
             last_cursor_pos: None,
             is_key_down: false,
+            gbuffer,
         }
     }
     fn input(&mut self, event: &WindowEvent) -> bool {
@@ -87,10 +126,10 @@ impl App {
                 true
             }
             WindowEvent::MouseInput {
-                device_id,
+                device_id:_,
                 state: ElementState::Pressed,
                 button: MouseButton::Left,
-                modifiers,
+                modifiers:_,
             } => {
                 self.is_key_down = true;
                 true
@@ -120,8 +159,8 @@ impl App {
             }
             WindowEvent::KeyboardInput {
                 device_id: _,
-                input,
-                is_synthetic,
+                input:_,
+                is_synthetic:_,
             } => false,
             _ => false,
         }
@@ -132,16 +171,36 @@ impl App {
     }
     fn render(&mut self) -> Result<(), wgpu::SwapChainError> {
         let frame = self.ctx.swap_chain.get_current_frame()?.output;
-        let input = RenderInput {
-            attachements: vec![ColorAttachment { view: &frame.view }],
-            meshes: &self.gpu_meshes[..],
-        };
-        self.render_pass.render(
-            Size(self.size.width, self.size.height),
-            &mut self.ctx,
-            &self.camera,
-            &input,
-        );
+
+        let mut frame_ctx = FrameContext { frame };
+        let mut cmd_buffers = vec![];
+        // {
+        //     let input = SimpleRenderPassInput {
+        //         meshes: self.gpu_meshes.clone(),
+        //     };
+        //     cmd_buffers.push(self.simple_render_pass.record_command(
+        //         Size(self.size.width, self.size.height),
+        //         &mut self.ctx,
+        //         &mut frame_ctx,
+        //         &self.camera,
+        //         &input,
+        //     ));
+        // }
+        {
+            let input = GBufferPassInput {
+                meshes: self.gpu_meshes.clone(),
+                gbuffer: self.gbuffer.clone(),
+            };
+            cmd_buffers.push(self.gbuffer_render_pass.record_command(
+                Size(self.size.width, self.size.height),
+                &mut self.ctx,
+                &mut frame_ctx,
+                &self.camera,
+                &input,
+            ));
+            
+        }
+        self.ctx.device_ctx.queue.submit(cmd_buffers.into_iter());
 
         Ok(())
     }
