@@ -10,7 +10,7 @@ use arukas::{
 };
 
 use arukas::render::GPUMesh;
-use passes::GBufferPassInput;
+use passes::{DeferredShadingInput, GBufferPassInput};
 use winit::{
     event::*,
     event_loop::{ControlFlow, EventLoop},
@@ -32,6 +32,7 @@ struct App {
     camera: OribitalCamera,
     simple_render_pass: SimpleRenderPass,
     gbuffer_render_pass: passes::GBufferPass,
+    deferred_render_pass: passes::DeferredShadingPass,
     gbuffer: GBuffer,
     last_cursor_pos: Option<winit::dpi::PhysicalPosition<f64>>,
     is_key_down: bool,
@@ -83,6 +84,7 @@ impl App {
         };
         let simple_render_pass = SimpleRenderPass::new(&ctx);
         let gbuffer_render_pass = passes::GBufferPass::new(&ctx);
+        let deferred_render_pass = passes::DeferredShadingPass::new(&ctx);
         let gbuffer = GBuffer {
             depth: Arc::new(Texture::create_depth_texture_from_sc(
                 &ctx.device_ctx.device,
@@ -109,6 +111,7 @@ impl App {
             camera,
             simple_render_pass,
             gbuffer_render_pass,
+            deferred_render_pass,
             last_cursor_pos: None,
             is_key_down: false,
             gbuffer,
@@ -126,10 +129,10 @@ impl App {
                 true
             }
             WindowEvent::MouseInput {
-                device_id:_,
+                device_id: _,
                 state: ElementState::Pressed,
                 button: MouseButton::Left,
-                modifiers:_,
+                modifiers: _,
             } => {
                 self.is_key_down = true;
                 true
@@ -159,8 +162,8 @@ impl App {
             }
             WindowEvent::KeyboardInput {
                 device_id: _,
-                input:_,
-                is_synthetic:_,
+                input: _,
+                is_synthetic: _,
             } => false,
             _ => false,
         }
@@ -187,18 +190,31 @@ impl App {
         //     ));
         // }
         {
-            let input = GBufferPassInput {
-                meshes: self.gpu_meshes.clone(),
-                gbuffer: self.gbuffer.clone(),
-            };
-            cmd_buffers.push(self.gbuffer_render_pass.record_command(
-                Size(self.size.width, self.size.height),
-                &mut self.ctx,
-                &mut frame_ctx,
-                &self.camera,
-                &input,
-            ));
-            
+            {
+                let input = GBufferPassInput {
+                    meshes: self.gpu_meshes.clone(),
+                    gbuffer: self.gbuffer.clone(),
+                };
+                cmd_buffers.push(self.gbuffer_render_pass.record_command(
+                    Size(self.size.width, self.size.height),
+                    &mut self.ctx,
+                    &mut frame_ctx,
+                    &self.camera,
+                    &input,
+                ));
+            }
+            {
+                let input = DeferredShadingInput {
+                    gbuffer: self.gbuffer.clone(),
+                };
+                cmd_buffers.push(self.deferred_render_pass.record_command(
+                    Size(self.size.width, self.size.height),
+                    &mut self.ctx,
+                    &mut frame_ctx,
+                    &self.camera,
+                    &input,
+                ));
+            }
         }
         self.ctx.device_ctx.queue.submit(cmd_buffers.into_iter());
 
