@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use crate::render::{
-    Buffer, BufferData, Camera, ColorAttachment, FrameContext, GPUMesh, RenderContext, RenderPass,
-    Size, Texture, UniformViewProjection, Vertex,
+    Buffer, BufferData, Camera, ColorAttachment, FrameContext, GPUMesh, GPUScene, RenderContext,
+    RenderPass, Size, Texture, UniformViewProjection, Vertex,
 };
 
 #[derive(Clone)]
@@ -15,10 +15,11 @@ pub struct GBuffer {
 pub struct GBufferPass {
     pipeline: wgpu::RenderPipeline,
     camera_uniform: Buffer<UniformViewProjection>,
+    bind_group0: wgpu::BindGroup,
 }
 
 pub struct GBufferPassInput {
-    pub meshes: Vec<Arc<GPUMesh>>,
+    pub scene: Arc<GPUScene>,
     pub gbuffer: GBuffer,
 }
 impl GBufferPass {
@@ -60,15 +61,31 @@ impl GBufferPass {
         });
         let camera_uniform = Buffer::<UniformViewProjection>::new_uniform_buffer(
             &ctx.device_ctx,
-            0,
-            wgpu::ShaderStage::FRAGMENT | wgpu::ShaderStage::VERTEX,
             &[UniformViewProjection::default()],
             None,
         );
+        let bind_group_layout0 =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[camera_uniform.bindgroup_layout_entry(
+                    0,
+                    wgpu::ShaderStage::VERTEX,
+                    wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                )],
+                label: Some("gbuffer.bindgroup_layout.0"),
+            });
+        let bind_group0 = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            entries: &[camera_uniform.bindgroup_entry(0)],
+            label: Some("gbuffer.bindgroup.0"),
+            layout: &bind_group_layout0,
+        });
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
-                bind_group_layouts: &[&camera_uniform.layout],
+                bind_group_layouts: &[&bind_group_layout0],
                 push_constant_ranges: &[],
             });
         let sc_desc = &ctx.sc_desc;
@@ -125,6 +142,7 @@ impl GBufferPass {
         Self {
             pipeline: render_pipeline,
             camera_uniform,
+            bind_group0,
         }
     }
 }
@@ -178,9 +196,9 @@ impl RenderPass for GBufferPass {
             });
             render_pass.set_pipeline(&self.pipeline);
 
-            render_pass.set_bind_group(0, &self.camera_uniform.bind_group, &[]);
+            render_pass.set_bind_group(0, &self.bind_group0, &[]);
 
-            for m in &input.meshes {
+            for m in &input.scene.meshes {
                 render_pass.set_vertex_buffer(0, m.vertex_buffer.slice(..));
                 render_pass.set_index_buffer(m.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
                 render_pass.draw_indexed(0..m.num_indices, 0, 0..1); // 2.

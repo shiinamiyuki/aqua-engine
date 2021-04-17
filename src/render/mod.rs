@@ -7,10 +7,12 @@ pub mod texture;
 pub mod render_pass;
 pub mod compute_pass;
 pub mod shader;
-pub mod svo;
+// pub mod svo;
+pub mod scene;
 
 pub mod passes;
 
+pub use scene::*;
 pub use shader::*;
 pub use buffer::*;
 pub use camera::*;
@@ -20,7 +22,7 @@ pub use mesh::*;
 pub use render_pass::*;
 pub use texture::*;
 pub use compute_pass::*;
-pub use svo::*;
+// pub use svo::*;
 
 #[derive(Debug, Clone, Copy, Default, Eq, PartialEq)]
 pub struct Size(pub u32, pub u32);

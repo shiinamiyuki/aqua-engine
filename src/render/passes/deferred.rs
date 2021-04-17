@@ -3,10 +3,10 @@ use std::path::Path;
 use wgpu::util::DeviceExt;
 
 use crate::render::{
-    self, compile_shader_file, Camera, FrameContext, RenderContext, RenderPass, Size, Vertex,
+    compile_shader_file, Camera, FrameContext, RenderContext, RenderPass, Size, Vertex,
 };
 
-use super::GBuffer;
+use super::{GBuffer, GBufferPassInput};
 
 pub struct DeferredShadingPass {
     pipeline: wgpu::RenderPipeline,
@@ -14,9 +14,7 @@ pub struct DeferredShadingPass {
     vertex_buffer: wgpu::Buffer,
     sampler: wgpu::Sampler,
 }
-pub struct DeferredShadingInput {
-    pub gbuffer: GBuffer,
-}
+
 impl DeferredShadingPass {
     pub fn new(ctx: &RenderContext) -> Self {
         let device = &ctx.device_ctx.device;
@@ -106,7 +104,7 @@ impl DeferredShadingPass {
             },
         });
         /*
-        -2, 1       1,1
+        -2, 1       1, 1
 
 
                     1, -2
@@ -128,7 +126,7 @@ impl DeferredShadingPass {
     }
 }
 impl RenderPass for DeferredShadingPass {
-    type Input = DeferredShadingInput;
+    type Input = GBufferPassInput;
     fn record_command(
         &mut self,
         _size: Size,

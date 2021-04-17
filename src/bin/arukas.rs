@@ -4,13 +4,13 @@ use arukas::{
     render::{
         fovx_to_fovy,
         passes::{self, GBuffer},
-        Camera, ColorAttachment, FrameContext, LookAtCamera, Mesh, OribitalCamera, Perspective,
-        RenderContext, RenderPass, SimpleRenderPass, SimpleRenderPassInput, Size, Texture,
+        Camera, ColorAttachment, FrameContext, GPUScene, LookAtCamera, Mesh, OribitalCamera,
+        Perspective, RenderContext, RenderPass, Size, Texture,
     },
 };
 
 use arukas::render::GPUMesh;
-use passes::{DeferredShadingInput, GBufferPassInput};
+use passes::GBufferPassInput;
 use winit::{
     event::*,
     event_loop::{ControlFlow, EventLoop},
@@ -28,9 +28,9 @@ use wgpu::util::DeviceExt;
 struct App {
     ctx: RenderContext,
     size: winit::dpi::PhysicalSize<u32>,
-    gpu_meshes: Vec<Arc<GPUMesh>>,
+    scene: Arc<GPUScene>,
     camera: OribitalCamera,
-    simple_render_pass: SimpleRenderPass,
+    // simple_render_pass: SimpleRenderPass,
     gbuffer_render_pass: passes::GBufferPass,
     deferred_render_pass: passes::DeferredShadingPass,
     gbuffer: GBuffer,
@@ -82,7 +82,6 @@ impl App {
             phi: 0.0,
             theta: glm::pi::<f32>() * 0.5,
         };
-        let simple_render_pass = SimpleRenderPass::new(&ctx);
         let gbuffer_render_pass = passes::GBufferPass::new(&ctx);
         let deferred_render_pass = passes::DeferredShadingPass::new(&ctx);
         let gbuffer = GBuffer {
@@ -104,12 +103,15 @@ impl App {
                 "gbuffer.world_pos",
             )),
         };
+        let scene = Arc::new(GPUScene {
+            meshes: gpu_meshes,
+            point_lights: vec![],
+        });
         App {
             ctx,
             size: window.inner_size(),
-            gpu_meshes,
+            scene,
             camera,
-            simple_render_pass,
             gbuffer_render_pass,
             deferred_render_pass,
             last_cursor_pos: None,
@@ -190,11 +192,11 @@ impl App {
         //     ));
         // }
         {
+            let input = GBufferPassInput {
+                scene: self.scene.clone(),
+                gbuffer: self.gbuffer.clone(),
+            };
             {
-                let input = GBufferPassInput {
-                    meshes: self.gpu_meshes.clone(),
-                    gbuffer: self.gbuffer.clone(),
-                };
                 cmd_buffers.push(self.gbuffer_render_pass.record_command(
                     Size(self.size.width, self.size.height),
                     &mut self.ctx,
@@ -204,9 +206,6 @@ impl App {
                 ));
             }
             {
-                let input = DeferredShadingInput {
-                    gbuffer: self.gbuffer.clone(),
-                };
                 cmd_buffers.push(self.deferred_render_pass.record_command(
                     Size(self.size.width, self.size.height),
                     &mut self.ctx,
