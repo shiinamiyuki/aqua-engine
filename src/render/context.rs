@@ -58,7 +58,10 @@ impl RenderContext {
                         | wgpu::Features::SAMPLED_TEXTURE_ARRAY_NON_UNIFORM_INDEXING
                         | wgpu::Features::SAMPLED_TEXTURE_ARRAY_DYNAMIC_INDEXING
                         | wgpu::Features::PUSH_CONSTANTS,
-                    limits: wgpu::Limits::default(),
+                    limits: wgpu::Limits {
+                        max_push_constant_size: 64,
+                        ..wgpu::Limits::default()
+                    },
                     label: None,
                 },
                 None, // Trace path
@@ -86,7 +89,10 @@ impl RenderContext {
         self.size = new_size;
         self.sc_desc.width = new_size.width;
         self.sc_desc.height = new_size.height;
-        self.swap_chain = self.device_ctx.device.create_swap_chain(&self.surface, &self.sc_desc);
+        self.swap_chain = self
+            .device_ctx
+            .device
+            .create_swap_chain(&self.surface, &self.sc_desc);
     }
 }
 

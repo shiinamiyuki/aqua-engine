@@ -4,13 +4,13 @@ use arukas::{
     render::{
         fovx_to_fovy,
         passes::{self, GBuffer},
-        Camera, ColorAttachment, FrameContext, GPUScene, LookAtCamera, Mesh, OribitalCamera,
-        Perspective, RenderContext, RenderPass, Size, Texture,
+        Camera, ColorAttachment, CubeMap, FrameContext, GPUScene, LookAtCamera, Mesh,
+        OribitalCamera, Perspective, PointLight, RenderContext, RenderPass, Size, Texture,
     },
 };
 
 use arukas::render::GPUMesh;
-use passes::GBufferPassInput;
+use passes::{GBufferPassInput, ShadowPassInput};
 use winit::{
     event::*,
     event_loop::{ControlFlow, EventLoop},
@@ -30,9 +30,11 @@ struct App {
     size: winit::dpi::PhysicalSize<u32>,
     scene: Arc<GPUScene>,
     camera: OribitalCamera,
+    shadow_cube_map: Arc<CubeMap>,
     // simple_render_pass: SimpleRenderPass,
     gbuffer_render_pass: passes::GBufferPass,
     deferred_render_pass: passes::DeferredShadingPass,
+    shadow_pass: passes::ShadowPass,
     gbuffer: GBuffer,
     last_cursor_pos: Option<winit::dpi::PhysicalPosition<f64>>,
     is_key_down: bool,
@@ -84,6 +86,7 @@ impl App {
         };
         let gbuffer_render_pass = passes::GBufferPass::new(&ctx);
         let deferred_render_pass = passes::DeferredShadingPass::new(&ctx);
+        let shadow_pass = passes::ShadowPass::new(&ctx);
         let gbuffer = GBuffer {
             depth: Arc::new(Texture::create_depth_texture_from_sc(
                 &ctx.device_ctx.device,
@@ -105,8 +108,18 @@ impl App {
         };
         let scene = Arc::new(GPUScene {
             meshes: gpu_meshes,
-            point_lights: vec![],
+            point_lights: vec![PointLight {
+                position: glm::vec3(0.0, 1.2, 2.0),
+                emission: glm::vec3(1.0, 1.0, 1.0),
+            }],
         });
+        let shadow_cube_map = Arc::new(CubeMap::create_cubemap(
+            &ctx.device_ctx.device,
+            128,
+            Texture::DEPTH_FORMAT,
+            "omni-shadow",
+            true,
+        ));
         App {
             ctx,
             size: window.inner_size(),
@@ -114,7 +127,9 @@ impl App {
             camera,
             gbuffer_render_pass,
             deferred_render_pass,
+            shadow_pass,
             last_cursor_pos: None,
+            shadow_cube_map,
             is_key_down: false,
             gbuffer,
         }
@@ -214,6 +229,20 @@ impl App {
                     &input,
                 ));
             }
+        }
+        {
+            let input = ShadowPassInput {
+                scene: self.scene.clone(),
+                light_idx: 0,
+                cubemap: self.shadow_cube_map.clone(),
+            };
+            cmd_buffers.push(self.shadow_pass.record_command(
+                Size(self.size.width, self.size.height),
+                &mut self.ctx,
+                &mut frame_ctx,
+                &self.camera,
+                &input,
+            ));
         }
         self.ctx.device_ctx.queue.submit(cmd_buffers.into_iter());
 

@@ -9,7 +9,7 @@ pub struct UniformViewProjection {
     proj: [[f32; 4]; 4],
     // model: [[f32; 4]; 4],
 }
-pub struct ViewProjection(glm::Mat4, glm::Mat4);
+pub struct ViewProjection(pub glm::Mat4, pub glm::Mat4);
 
 impl Default for ViewProjection {
     fn default() -> Self {

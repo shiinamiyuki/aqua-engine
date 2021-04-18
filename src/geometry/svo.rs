@@ -72,6 +72,11 @@ where
             return None;
         }
         let mut p_offset = self.bound.offset(&p);
+        if glm::any(&glm::less_than(&p_offset, &glm::vec3(0.0, 0.0, 0.0)))
+            || glm::any(&glm::greater_than(&p_offset, &glm::vec3(1.0, 1.0, 1.0)))
+        {
+            return None;
+        }
         let mut ptr: Option<u32> = None;
         loop {
             let node = &self.nodes[ptr.unwrap() as usize];
@@ -101,6 +106,11 @@ where
             });
         } else {
             let mut p_offset = self.bound.offset(&p);
+            if glm::any(&glm::less_than(&p_offset, &glm::vec3(0.0, 0.0, 0.0)))
+                || glm::any(&glm::greater_than(&p_offset, &glm::vec3(1.0, 1.0, 1.0)))
+            {
+                return;
+            }
             let mut ptr: Option<u32> = None;
             let mut depth = 0;
             while depth < self.max_depth {

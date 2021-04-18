@@ -1,9 +1,12 @@
+use std::num::NonZeroU32;
+
 use super::Size;
 
 pub struct Texture {
     pub texture: wgpu::Texture,
     pub sampler: wgpu::Sampler,
     pub view: wgpu::TextureView,
+    pub extent: wgpu::Extent3d,
 }
 
 impl Texture {
@@ -15,6 +18,7 @@ impl Texture {
     ) -> Self {
         Self::create_depth_texture_with_size(&device, &Size(sc_desc.width, sc_desc.height), label)
     }
+
     pub fn create_color_attachment(
         device: &wgpu::Device,
         size: &Size,
@@ -44,9 +48,7 @@ impl Texture {
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
             mipmap_filter: wgpu::FilterMode::Nearest,
-            compare: Some(wgpu::CompareFunction::LessEqual), // 5.
-            lod_min_clamp: -100.0,
-            lod_max_clamp: 100.0,
+            compare: None, // 5.
             ..Default::default()
         });
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
@@ -54,6 +56,7 @@ impl Texture {
             texture,
             sampler,
             view,
+            extent: size,
         }
     }
     pub fn create_depth_texture_with_size(device: &wgpu::Device, size: &Size, label: &str) -> Self {
@@ -93,6 +96,72 @@ impl Texture {
             texture,
             sampler,
             view,
+            extent: size,
+        }
+    }
+}
+
+pub struct CubeMap {
+    pub texture: wgpu::Texture,
+    pub sampler: wgpu::Sampler,
+    pub view: Vec<wgpu::TextureView>,
+    pub extent: wgpu::Extent3d,
+}
+
+impl CubeMap {
+    pub fn create_cubemap(
+        device: &wgpu::Device,
+        res: u32,
+        format: wgpu::TextureFormat,
+        label: &str,
+        depth_map: bool,
+    ) -> Self {
+        let size = wgpu::Extent3d {
+            width: res,
+            height: res,
+            depth: 6,
+        };
+        let desc = wgpu::TextureDescriptor {
+            label: Some(label),
+            size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage: wgpu::TextureUsage::RENDER_ATTACHMENT | wgpu::TextureUsage::SAMPLED,
+        };
+        let texture = device.create_texture(&desc);
+
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            compare: if depth_map {
+                Some(wgpu::CompareFunction::LessEqual)
+            } else {
+                None
+            },
+            ..Default::default()
+        });
+        let view: Vec<wgpu::TextureView> = (0..6u32)
+            .into_iter()
+            .map(|i| {
+                texture.create_view(&wgpu::TextureViewDescriptor {
+                    dimension: Some(wgpu::TextureViewDimension::D2),
+                    base_array_layer: i,
+                    array_layer_count: NonZeroU32::new(1),
+                    ..Default::default()
+                })
+            })
+            .collect();
+        Self {
+            texture,
+            sampler,
+            view,
+            extent: size,
         }
     }
 }
