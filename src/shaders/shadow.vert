@@ -18,6 +18,9 @@ void main(){
     mat4 view = vp[face_idx].view;
     mat4 proj = vp[face_idx].proj;
     vec4 v = view * vec4(a_position, 1.0);
+
+    vec4 projected = proj * v;
+    
     pos = v.xyz / v.w;
-    gl_Position = proj * v;
+    gl_Position = projected;
 }

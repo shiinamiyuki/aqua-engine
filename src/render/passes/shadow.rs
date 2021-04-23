@@ -140,8 +140,8 @@ impl RenderPass for ShadowPass {
             let proj = glm::perspective(1.0f32, std::f32::consts::PI * 0.5, 0.01, 100.0);
             let dir = {
                 match face {
-                    0 => glm::vec3(1.0, 0.0, 0.0),
-                    1 => glm::vec3(-1.0, 0.0, 0.0),
+                    0 => glm::vec3(-1.0, 0.0, 0.0),
+                    1 => glm::vec3(1.0, 0.0, 0.0),
                     2 => glm::vec3(0.0, 1.0, 0.0),
                     3 => glm::vec3(0.0, -1.0, 0.0),
                     4 => glm::vec3(0.0, 0.0, 1.0),

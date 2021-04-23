@@ -384,9 +384,10 @@ impl DeferredShadingPass {
             )),
             layout: Arc::new(GBuffer::bind_group_layout(&ctx.device_ctx)),
         };
+        let cubemap_res = 512;
         let shadow_cube_map = Arc::new(CubeMap::create_cubemap(
             &ctx.device_ctx.device,
-            128,
+            cubemap_res,
             wgpu::TextureFormat::R32Float,
             "omni-shadow",
             true,
@@ -400,7 +401,7 @@ impl DeferredShadingPass {
         Self {
             gbuffer,
             shadow_cube_map,
-            shadow_pass: ShadowPass::new(ctx, 128),
+            shadow_pass: ShadowPass::new(ctx, cubemap_res),
             shadow_map_pass: ShadowMapPass::new(ctx),
             gbuffer_pass: GBufferPass::new(ctx),
             render_frame_buffer_pass: RenderFrameBufferPass::new(ctx),

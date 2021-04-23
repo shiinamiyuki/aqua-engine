@@ -25,24 +25,48 @@ layout( push_constant ) uniform PushConstants {
   int image_height;
 };
 
+float origin()      { return 1.0 / 32.0; }
+float float_scale() { return 1.0 / 65536.0; }
+float int_scale()   { return 256.0; }
 
+// Normal points outward for rays exiting the surface, else is flipped.
+vec3 offset_ray(const vec3 p, const vec3 n)
+{
+  ivec3 of_i = ivec3(int_scale() * n.x, int_scale() * n.y, int_scale() * n.z);
+
+  vec3 p_i = vec3( 
+      intBitsToFloat(floatBitsToInt(p.x)+((p.x < 0.0) ? -of_i.x : of_i.x)),
+      intBitsToFloat(floatBitsToInt(p.y)+((p.y < 0.0) ? -of_i.y : of_i.y)),
+      intBitsToFloat(floatBitsToInt(p.z)+((p.z < 0.0) ? -of_i.z : of_i.z)));
+
+  return vec3(abs(p.x) < origin() ? p.x+ float_scale()*n.x : p_i.x,
+                abs(p.y) < origin() ? p.y+ float_scale()*n.y : p_i.y,
+                abs(p.z) < origin() ? p.z+ float_scale()*n.z : p_i.z);
+}
 void main(){
     ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
     ivec2 image_size = imageSize(color_buf);
     if(any(greaterThanEqual(pixel, ivec2(image_width, image_height))))
         return;
     vec3 x = imageLoad(t_world_pos, pixel).xyz;
+    vec3 normal = imageLoad(t_normal, pixel).xyz;
+    vec3 offset_x = offset_ray(x, normal);
+    bool in_shadow = false;
+    
     vec3 wi = (light.position - x);
     float dist_sqr = dot(wi, wi);
     float dist = sqrt(dist_sqr);
     wi /= dist;
 
-    float shadow_depth = texture(samplerCube(shadow_map, s_sampler), -wi).x;
+    float shadow_depth = texture(samplerCube(shadow_map, s_sampler), -vec3(-wi.x,wi.yz)).x;
     vec3 L = vec3(0);
-    bool in_shadow = dist - 0.02 >= shadow_depth && wi.y > 0.0;
+
+
+    in_shadow = length(light.position - offset_x) * 0.97 >= shadow_depth;
+    
     if(!in_shadow ) {
-        vec3 normal = imageLoad(t_normal, pixel).xyz;
-        L += vec3(1) * max(0, dot(normal, wi)) / dist_sqr;
+        
+        L += vec3(1) * max(0.0,dot(normal, wi)) / dist_sqr;
     }
-    imageStore(color_buf, pixel, vec4(vec3(shadow_depth) * 0.1, 1.0));
+    imageStore(color_buf, pixel, vec4(L, 1.0));
 }
