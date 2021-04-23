@@ -1,6 +1,6 @@
 use std::{path::Path, sync::Arc};
 
-use render::{LookAtCamera, Perspective, OPENGL_TO_WGPU_MATRIX};
+use render::{LookAtCamera, Perspective, opengl_to_wgpu_matrix};
 use wgpu::util::DeviceExt;
 
 use crate::glm;
@@ -18,10 +18,12 @@ pub struct ShadowPass {
     pipeline: wgpu::RenderPipeline,
     light_vp: Buffer<UniformViewProjection>,
     bindgroup: wgpu::BindGroup,
+    depth: Texture,
+    cubemap_res: u32,
 }
 
 impl ShadowPass {
-    pub fn new(ctx: &RenderContext) -> Self {
+    pub fn new(ctx: &RenderContext, cubemap_res: u32) -> Self {
         let device = &ctx.device_ctx.device;
         let mut compiler = shaderc::Compiler::new().unwrap();
         let fs = compile_shader_file(
@@ -80,7 +82,12 @@ impl ShadowPass {
             fragment: Some(wgpu::FragmentState {
                 module: &fs,
                 entry_point: "main",
-                targets: &[],
+                targets: &[ wgpu::ColorTargetState {
+                    format: wgpu::TextureFormat::R32Float,
+                    alpha_blend: wgpu::BlendState::REPLACE,
+                    color_blend: wgpu::BlendState::REPLACE,
+                    write_mask: wgpu::ColorWrite::ALL,
+                },],
             }),
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleList,
@@ -103,10 +110,17 @@ impl ShadowPass {
                 alpha_to_coverage_enabled: false,
             },
         });
+        let depth = Texture::create_depth_texture_with_size(
+            device,
+            &Size(cubemap_res, cubemap_res),
+            "shadow.depth",
+        );
         Self {
             light_vp,
             pipeline,
             bindgroup,
+            depth,
+            cubemap_res,
         }
     }
 }
@@ -115,12 +129,12 @@ impl RenderPass for ShadowPass {
     type Input = ShadowPassInput;
     fn record_command(
         &mut self,
-        _size: Size,
         ctx: &mut RenderContext,
-        _frame_ctx: &mut FrameContext,
-        _camera: &dyn Camera,
+        frame_ctx: &mut FrameContext,
+        camera: &dyn Camera,
         input: &Self::Input,
-    ) -> wgpu::CommandBuffer {
+        encoder: &mut wgpu::CommandEncoder,
+    ) {
         let mut vp = vec![];
         for face in 0..6 {
             let proj = glm::perspective(1.0f32, std::f32::consts::PI * 0.5, 0.01, 100.0);
@@ -137,8 +151,8 @@ impl RenderPass for ShadowPass {
             };
             let up = {
                 match face {
-                    2 => glm::vec3(0.0, 0.0, 1.0),
-                    3 => glm::vec3(0.0, 0.0, -1.0),
+                    2 => glm::vec3(0.0, 0.0, -1.0),
+                    3 => glm::vec3(0.0, 0.0, 1.0),
                     _ => glm::vec3(0.0, 1.0, 0.0),
                 }
             };
@@ -146,22 +160,29 @@ impl RenderPass for ShadowPass {
             let view = glm::look_at(&eye, &(eye + dir), &up);
             vp.push(UniformViewProjection::new(&ViewProjection(
                 view,
-                glm::Mat4::from_row_slice(&OPENGL_TO_WGPU_MATRIX[..]) * proj,
+                opengl_to_wgpu_matrix() * proj,
             )));
         }
         self.light_vp.upload(&ctx.device_ctx, &vp[..]);
-        let mut encoder =
-            ctx.device_ctx
-                .device
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("Render Encoder"),
-                });
+
         for face in 0..6 {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: None,
-                color_attachments: &[],
+                label: Some("shadow.pass"),
+                color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
+                    attachment: &input.cubemap.face_views[face as usize],
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            r: 0.0,
+                            g: 0.0,
+                            b: 0.0,
+                            a: 1.0,
+                        }),
+                        store: true,
+                    },
+                }],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachmentDescriptor {
-                    attachment: &input.cubemap.view[face],
+                    attachment: &self.depth.view,
                     depth_ops: Some(wgpu::Operations {
                         load: wgpu::LoadOp::Clear(1.0),
                         store: true,
@@ -179,6 +200,5 @@ impl RenderPass for ShadowPass {
             render_pass.set_bind_group(0, &self.bindgroup, &[]);
             input.scene.draw(&mut render_pass);
         }
-        encoder.finish()
     }
 }

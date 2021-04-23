@@ -1,16 +1,17 @@
+use std::sync::Arc;
+
 use arukas::{
     geometry::load_model,
     glm,
     render::{
         fovx_to_fovy,
-        passes::{self, GBuffer},
-        Camera, ColorAttachment, CubeMap, FrameContext, GPUScene, LookAtCamera, Mesh,
-        OribitalCamera, Perspective, PointLight, RenderContext, RenderPass, Size, Texture,
+        passes::{self, DeferredShadingInput},
+        FrameContext, GPUScene, Mesh, OribitalCamera, Perspective, PointLight, RenderContext,
+        RenderPass,
     },
 };
 
 use arukas::render::GPUMesh;
-use passes::{GBufferPassInput, ShadowPassInput};
 use winit::{
     event::*,
     event_loop::{ControlFlow, EventLoop},
@@ -21,21 +22,13 @@ use winit::{
 // use std::path::Path;
 // use nalgebra_glm::{vec3, Vec3};
 use futures::executor::block_on;
-use std::time::Instant;
-use std::{collections::HashMap, sync::Arc};
-use wgpu::util::DeviceExt;
 
 struct App {
     ctx: RenderContext,
     size: winit::dpi::PhysicalSize<u32>,
     scene: Arc<GPUScene>,
     camera: OribitalCamera,
-    shadow_cube_map: Arc<CubeMap>,
-    // simple_render_pass: SimpleRenderPass,
-    gbuffer_render_pass: passes::GBufferPass,
     deferred_render_pass: passes::DeferredShadingPass,
-    shadow_pass: passes::ShadowPass,
-    gbuffer: GBuffer,
     last_cursor_pos: Option<winit::dpi::PhysicalPosition<f64>>,
     is_key_down: bool,
 }
@@ -79,33 +72,13 @@ impl App {
         };
         let camera = OribitalCamera {
             perspective,
-            center: glm::vec3(0.0, 0.6, 2.0),
-            radius: 1.0,
+            center: glm::vec3(0.0, 1.2, 2.0),
+            radius: 0.01,
             phi: 0.0,
             theta: glm::pi::<f32>() * 0.5,
         };
-        let gbuffer_render_pass = passes::GBufferPass::new(&ctx);
         let deferred_render_pass = passes::DeferredShadingPass::new(&ctx);
-        let shadow_pass = passes::ShadowPass::new(&ctx);
-        let gbuffer = GBuffer {
-            depth: Arc::new(Texture::create_depth_texture_from_sc(
-                &ctx.device_ctx.device,
-                &ctx.sc_desc,
-                "gbuffer.depth",
-            )),
-            normal: Arc::new(Texture::create_color_attachment(
-                &ctx.device_ctx.device,
-                &Size(ctx.sc_desc.width, ctx.sc_desc.height),
-                wgpu::TextureFormat::Rgba32Float,
-                "gbuffer.normal",
-            )),
-            world_pos: Arc::new(Texture::create_color_attachment(
-                &ctx.device_ctx.device,
-                &Size(ctx.sc_desc.width, ctx.sc_desc.height),
-                wgpu::TextureFormat::Rgba32Float,
-                "gbuffer.world_pos",
-            )),
-        };
+
         let scene = Arc::new(GPUScene {
             meshes: gpu_meshes,
             point_lights: vec![PointLight {
@@ -113,25 +86,15 @@ impl App {
                 emission: glm::vec3(1.0, 1.0, 1.0),
             }],
         });
-        let shadow_cube_map = Arc::new(CubeMap::create_cubemap(
-            &ctx.device_ctx.device,
-            128,
-            Texture::DEPTH_FORMAT,
-            "omni-shadow",
-            true,
-        ));
+
         App {
             ctx,
             size: window.inner_size(),
             scene,
             camera,
-            gbuffer_render_pass,
             deferred_render_pass,
-            shadow_pass,
             last_cursor_pos: None,
-            shadow_cube_map,
             is_key_down: false,
-            gbuffer,
         }
     }
     fn input(&mut self, event: &WindowEvent) -> bool {
@@ -193,58 +156,28 @@ impl App {
         let frame = self.ctx.swap_chain.get_current_frame()?.output;
 
         let mut frame_ctx = FrameContext { frame };
-        let mut cmd_buffers = vec![];
-        // {
-        //     let input = SimpleRenderPassInput {
-        //         meshes: self.gpu_meshes.clone(),
-        //     };
-        //     cmd_buffers.push(self.simple_render_pass.record_command(
-        //         Size(self.size.width, self.size.height),
-        //         &mut self.ctx,
-        //         &mut frame_ctx,
-        //         &self.camera,
-        //         &input,
-        //     ));
-        // }
-        {
-            let input = GBufferPassInput {
-                scene: self.scene.clone(),
-                gbuffer: self.gbuffer.clone(),
-            };
-            {
-                cmd_buffers.push(self.gbuffer_render_pass.record_command(
-                    Size(self.size.width, self.size.height),
-                    &mut self.ctx,
-                    &mut frame_ctx,
-                    &self.camera,
-                    &input,
-                ));
-            }
-            {
-                cmd_buffers.push(self.deferred_render_pass.record_command(
-                    Size(self.size.width, self.size.height),
-                    &mut self.ctx,
-                    &mut frame_ctx,
-                    &self.camera,
-                    &input,
-                ));
-            }
-        }
-        {
-            let input = ShadowPassInput {
-                scene: self.scene.clone(),
-                light_idx: 0,
-                cubemap: self.shadow_cube_map.clone(),
-            };
-            cmd_buffers.push(self.shadow_pass.record_command(
-                Size(self.size.width, self.size.height),
-                &mut self.ctx,
-                &mut frame_ctx,
-                &self.camera,
-                &input,
-            ));
-        }
-        self.ctx.device_ctx.queue.submit(cmd_buffers.into_iter());
+        let mut encoder =
+            self.ctx
+                .device_ctx
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("Command Encoder"),
+                });
+        let input = DeferredShadingInput {
+            scene: self.scene.clone(),
+        };
+        self.deferred_render_pass.record_command(
+            &mut self.ctx,
+            &mut frame_ctx,
+            &self.camera,
+            &input,
+            &mut encoder,
+        );
+
+        self.ctx
+            .device_ctx
+            .queue
+            .submit(std::iter::once(encoder.finish()));
 
         Ok(())
     }

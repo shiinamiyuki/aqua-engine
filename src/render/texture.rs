@@ -37,7 +37,7 @@ impl Texture {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format,
-            usage: wgpu::TextureUsage::RENDER_ATTACHMENT | wgpu::TextureUsage::SAMPLED,
+            usage: wgpu::TextureUsage::RENDER_ATTACHMENT | wgpu::TextureUsage::SAMPLED | wgpu::TextureUsage::STORAGE,
         };
         let texture = device.create_texture(&desc);
 
@@ -104,7 +104,8 @@ impl Texture {
 pub struct CubeMap {
     pub texture: wgpu::Texture,
     pub sampler: wgpu::Sampler,
-    pub view: Vec<wgpu::TextureView>,
+    pub face_views: Vec<wgpu::TextureView>,
+    pub view: wgpu::TextureView,
     pub extent: wgpu::Extent3d,
 }
 
@@ -146,7 +147,7 @@ impl CubeMap {
             },
             ..Default::default()
         });
-        let view: Vec<wgpu::TextureView> = (0..6u32)
+        let face_views: Vec<wgpu::TextureView> = (0..6u32)
             .into_iter()
             .map(|i| {
                 texture.create_view(&wgpu::TextureViewDescriptor {
@@ -157,9 +158,14 @@ impl CubeMap {
                 })
             })
             .collect();
+        let view = texture.create_view(&wgpu::TextureViewDescriptor {
+            dimension: Some(wgpu::TextureViewDimension::Cube),
+            ..Default::default()
+        });
         Self {
             texture,
             sampler,
+            face_views,
             view,
             extent: size,
         }

@@ -34,10 +34,10 @@ pub trait RenderPass {
     type Input;
     fn record_command(
         &mut self,
-        size: Size,
         ctx: &mut RenderContext,
         frame_ctx: &mut FrameContext,
         camera: &dyn Camera,
         input: &Self::Input,
-    ) -> wgpu::CommandBuffer;
+        encoder: &mut wgpu::CommandEncoder,
+    );
 }

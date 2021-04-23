@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use crate::render::{
-    Buffer, BufferData, Camera, ColorAttachment, FrameContext, GPUMesh, GPUScene, RenderContext,
-    RenderPass, Size, Texture, UniformViewProjection, Vertex,
+    Buffer, BufferData, Camera, ColorAttachment, DeviceContext, FrameContext, GPUMesh, GPUScene,
+    RenderContext, RenderPass, Size, Texture, UniformViewProjection, Vertex,
 };
 
 #[derive(Clone)]
@@ -10,6 +10,71 @@ pub struct GBuffer {
     pub depth: Arc<Texture>,
     pub normal: Arc<Texture>,
     pub world_pos: Arc<Texture>,
+    pub layout: Arc<wgpu::BindGroupLayout>,
+}
+impl GBuffer {
+    pub const DEPTH_FORMAT: wgpu::TextureFormat = Texture::DEPTH_FORMAT;
+    pub const NORMAL_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba32Float;
+    pub const WOLRD_POS_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba32Float;
+
+    pub fn bind_group_layout(ctx: &DeviceContext) -> wgpu::BindGroupLayout {
+        ctx.device
+            .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("gbuffer.bindgroup.layout"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Depth,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false
+                        },
+                        binding: 0,
+                        count: None,
+                        visibility: wgpu::ShaderStage::all(),
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        ty: wgpu::BindingType::StorageTexture {
+                            access: wgpu::StorageTextureAccess::ReadOnly,
+                            format: Self::NORMAL_FORMAT,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                        },
+                        binding: 1,
+                        count: None,
+                        visibility: wgpu::ShaderStage::all(),
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        ty: wgpu::BindingType::StorageTexture {
+                            access: wgpu::StorageTextureAccess::ReadOnly,
+                            format: Self::WOLRD_POS_FORMAT,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                        },
+                        binding: 2,
+                        count: None,
+                        visibility: wgpu::ShaderStage::all(),
+                    },
+                ],
+            })
+    }
+    pub fn create_bind_group(&self, ctx: &DeviceContext) -> wgpu::BindGroup {
+        ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("gbuffer.bindgroup"),
+            layout: &self.layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&self.depth.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&self.normal.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&self.world_pos.view),
+                },
+            ],
+        })
+    }
 }
 
 pub struct GBufferPass {
@@ -150,61 +215,51 @@ impl RenderPass for GBufferPass {
     type Input = GBufferPassInput;
     fn record_command(
         &mut self,
-        size: Size,
         ctx: &mut RenderContext,
         frame_ctx: &mut FrameContext,
         camera: &dyn Camera,
         input: &Self::Input,
-    ) -> wgpu::CommandBuffer {
+        encoder: &mut wgpu::CommandEncoder,
+    ) {
         self.camera_uniform.upload(
             &ctx.device_ctx,
             &[UniformViewProjection::new(
                 &camera.build_view_projection_matrix(),
             )],
         );
-        let mut encoder =
-            ctx.device_ctx
-                .device
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("Render Encoder"),
-                });
-        {
-            let color_attachments = vec![
-                ColorAttachment {
-                    view: &input.gbuffer.normal.view,
-                },
-                ColorAttachment {
-                    view: &input.gbuffer.world_pos.view,
-                },
-            ];
-            let attachment_descs: Vec<wgpu::RenderPassColorAttachmentDescriptor> =
-                color_attachments
-                    .iter()
-                    .map(|color| color.get_descriptor())
-                    .collect();
-            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Render Pass"),
-                color_attachments: &attachment_descs[..],
-                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachmentDescriptor {
-                    attachment: &input.gbuffer.depth.view,
-                    depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(1.0),
-                        store: true,
-                    }),
-                    stencil_ops: None,
+
+        let color_attachments = vec![
+            ColorAttachment {
+                view: &input.gbuffer.normal.view,
+            },
+            ColorAttachment {
+                view: &input.gbuffer.world_pos.view,
+            },
+        ];
+        let attachment_descs: Vec<wgpu::RenderPassColorAttachmentDescriptor> = color_attachments
+            .iter()
+            .map(|color| color.get_descriptor())
+            .collect();
+        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("Render Pass"),
+            color_attachments: &attachment_descs[..],
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachmentDescriptor {
+                attachment: &input.gbuffer.depth.view,
+                depth_ops: Some(wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(1.0),
+                    store: true,
                 }),
-            });
-            render_pass.set_pipeline(&self.pipeline);
+                stencil_ops: None,
+            }),
+        });
+        render_pass.set_pipeline(&self.pipeline);
 
-            render_pass.set_bind_group(0, &self.bind_group0, &[]);
+        render_pass.set_bind_group(0, &self.bind_group0, &[]);
 
-            for m in &input.scene.meshes {
-                render_pass.set_vertex_buffer(0, m.vertex_buffer.slice(..));
-                render_pass.set_index_buffer(m.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-                render_pass.draw_indexed(0..m.num_indices, 0, 0..1); // 2.
-            }
+        for m in &input.scene.meshes {
+            render_pass.set_vertex_buffer(0, m.vertex_buffer.slice(..));
+            render_pass.set_index_buffer(m.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+            render_pass.draw_indexed(0..m.num_indices, 0, 0..1); // 2.
         }
-
-        encoder.finish()
     }
 }

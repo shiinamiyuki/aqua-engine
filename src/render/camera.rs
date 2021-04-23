@@ -1,6 +1,7 @@
 use super::{Buffer, BufferData};
 use nalgebra as na;
 use nalgebra_glm as glm;
+
 #[repr(C)]
 // This is so we can store this in a buffer
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -52,13 +53,16 @@ pub struct Perspective {
 //     pub znear: f32,
 //     pub zfar: f32,
 // }
+
 #[rustfmt::skip]
-    pub const OPENGL_TO_WGPU_MATRIX: [f32;16] =  [
+pub fn opengl_to_wgpu_matrix()-> glm::Mat4 { 
+    glm::Mat4::from_column_slice(&[
         1.0, 0.0, 0.0, 0.0,
         0.0, 1.0, 0.0, 0.0,
         0.0, 0.0, 0.5, 0.0,
         0.0, 0.0, 0.5, 1.0
-    ];
+    ])
+}
 
 // impl Camera {
 //     pub fn build_view_projection_matrix(&self) -> ViewProjection {
@@ -93,10 +97,7 @@ impl Camera for LookAtCamera {
             self.perspective.znear,
             self.perspective.zfar,
         );
-        ViewProjection(
-            view,
-            glm::Mat4::from_row_slice(&OPENGL_TO_WGPU_MATRIX[..]) * proj,
-        )
+        ViewProjection(view, opengl_to_wgpu_matrix() * proj)
     }
 }
 
@@ -115,9 +116,6 @@ impl Camera for OribitalCamera {
             self.perspective.znear,
             self.perspective.zfar,
         );
-        ViewProjection(
-            view,
-            glm::Mat4::from_row_slice(&OPENGL_TO_WGPU_MATRIX[..]) * proj,
-        )
+        ViewProjection(view, opengl_to_wgpu_matrix() * proj)
     }
 }

@@ -1,0 +1,48 @@
+#version 450
+layout(local_size_x = 16, local_size_y = 16) in;
+
+struct PointLight {
+    vec3 position;
+    vec3 emission;
+};
+
+layout(set=0, binding=0, r32f) uniform image2D color_buf;
+layout(set=0, binding=1) uniform sampler s_sampler;
+layout(set=0, binding=2) uniform textureCube shadow_map;
+layout(set=0, binding=3)  uniform PointLightData {
+    PointLight light;
+};
+
+layout(set=1, binding=0) uniform texture2D t_depth;
+layout(set=1, binding=1,rgba32f)  readonly uniform image2D t_normal;
+layout(set=1, binding=2,rgba32f)  readonly uniform image2D t_world_pos;
+
+
+
+layout( push_constant ) uniform PushConstants {
+  int light_idx;
+  int image_width;
+  int image_height;
+};
+
+
+void main(){
+    ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 image_size = imageSize(color_buf);
+    if(any(greaterThanEqual(pixel, ivec2(image_width, image_height))))
+        return;
+    vec3 x = imageLoad(t_world_pos, pixel).xyz;
+    vec3 wi = (light.position - x);
+    float dist_sqr = dot(wi, wi);
+    float dist = sqrt(dist_sqr);
+    wi /= dist;
+
+    float shadow_depth = texture(samplerCube(shadow_map, s_sampler), -wi).x;
+    vec3 L = vec3(0);
+    bool in_shadow = dist - 0.02 >= shadow_depth && wi.y > 0.0;
+    if(!in_shadow ) {
+        vec3 normal = imageLoad(t_normal, pixel).xyz;
+        L += vec3(1) * max(0, dot(normal, wi)) / dist_sqr;
+    }
+    imageStore(color_buf, pixel, vec4(vec3(shadow_depth) * 0.1, 1.0));
+}

@@ -7,5 +7,6 @@ pub trait ComputePass {
         size: Size,
         ctx: &mut DeviceContext,
         input: &Self::Input,
-    ) -> wgpu::CommandBuffer;
+        encoder: &mut wgpu::CommandEncoder,
+    );
 }
