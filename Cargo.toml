@@ -21,3 +21,7 @@ bytemuck = { version = "1.4", features = [ "derive" ] }
 [dependencies.wgpu]
 version = "0.7"
 features = ["vulkan-portability"]
+
+[[bin]]
+name="arukas"
+path="src/bin/arukas.rs"
