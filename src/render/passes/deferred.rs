@@ -8,7 +8,7 @@ use crate::render::{
 };
 
 use super::{GBuffer, GBufferPass, GBufferPassInput, ShadowPass, ShadowPassInput};
-
+use super::{SSGIPass, SSGIPassInput};
 
 pub struct ShadowMapPass {
     pub pipeline: wgpu::ComputePipeline,
@@ -102,7 +102,7 @@ impl ShadowMapPass {
         //     &[UniformViewProjection::default(); 6],
         //     Some("light_view.vp"),
         // );
-           // let mut rng = rand::thread_rng();
+        // let mut rng = rand::thread_rng();
         // let seeds_data: Vec<u32> = (0..(1920 * 1080)).map(|_| {
         //     rng.gen::<u32>()
         // }).collect();
@@ -370,6 +370,7 @@ pub struct DeferredShadingPass {
     shadow_pass: ShadowPass,
     shadow_map_pass: ShadowMapPass,
     gbuffer_pass: GBufferPass,
+    ssgi_pass: SSGIPass,
     render_frame_buffer_pass: RenderFrameBufferPass,
     gbuffer: GBuffer,
     shadow_cube_map: Arc<CubeMap>,
@@ -419,6 +420,7 @@ impl DeferredShadingPass {
             shadow_map_pass: ShadowMapPass::new(ctx),
             gbuffer_pass: GBufferPass::new(ctx),
             render_frame_buffer_pass: RenderFrameBufferPass::new(ctx),
+            ssgi_pass: SSGIPass::new(ctx),
             color_buffer,
         }
     }
@@ -455,15 +457,26 @@ impl RenderPass for DeferredShadingPass {
                     .record_command(ctx, frame_ctx, camera, &input, encoder);
             }
         }
+        // {
+        //     let input = ShadowMapPassInput {
+        //         scene: input.scene.clone(),
+        //         light_idx: 0,
+        //         cubemap: self.shadow_cube_map.clone(),
+        //         gbuffer: self.gbuffer.clone(),
+        //         color: self.color_buffer.clone(),
+        //     };
+        //     self.shadow_map_pass
+        //         .record_command(ctx, frame_ctx, camera, &input, encoder)
+        // }
         {
-            let input = ShadowMapPassInput {
+            let input = SSGIPassInput {
                 scene: input.scene.clone(),
                 light_idx: 0,
                 cubemap: self.shadow_cube_map.clone(),
                 gbuffer: self.gbuffer.clone(),
                 color: self.color_buffer.clone(),
             };
-            self.shadow_map_pass
+            self.ssgi_pass
                 .record_command(ctx, frame_ctx, camera, &input, encoder)
         }
         {

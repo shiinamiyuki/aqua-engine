@@ -61,6 +61,8 @@ impl RenderContext {
                         | wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES,
                     limits: wgpu::Limits {
                         max_push_constant_size: 64,
+                        max_storage_buffer_binding_size: 1920 * 1080 * 16,
+                        max_uniform_buffer_binding_size: 1920 * 1080 * 16,
                         ..wgpu::Limits::default()
                     },
                     label: None,
