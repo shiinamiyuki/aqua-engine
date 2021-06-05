@@ -27,10 +27,13 @@ layout( push_constant ) uniform PushConstants {
   int light_idx;
   int image_width;
   int image_height;
+  vec3 eye_pos;
 };
 
 int pixel_idx;
 uint seed;
+
+const float PI = 3.1415926535384;
 float rand() {
     seed = (seed * 1103515245) + 12345;
     return float(seed) / 0xFFFFFFFF;
@@ -54,7 +57,131 @@ vec3 offset_ray(const vec3 p, const vec3 n)
                 abs(p.y) < origin() ? p.y+ float_scale()*n.y : p_i.y,
                 abs(p.z) < origin() ? p.z+ float_scale()*n.z : p_i.z);
 }
+vec3 direct_lighting(ivec2 pixel) {
+    vec3 x = imageLoad(t_world_pos, pixel).xyz;
+    vec3 normal = imageLoad(t_normal, pixel).xyz;
+    vec3 offset_x = offset_ray(x, normal);
+    
+    vec3 wi = (light.position - x);
+    float dist_sqr = dot(wi, wi);
+    float dist = sqrt(dist_sqr);
+    wi /= dist;
 
+    float shadow_depth = texture(samplerCube(shadow_map, s_sampler), -vec3(-wi.x,wi.yz)).x;
+    
+    bool in_shadow = length(light.position - offset_x) * 0.95 >= shadow_depth;
+    vec3 L = vec3(0);
+    L += vec3(1) * max(0.0,dot(normal, wi)) / dist_sqr;
+    return L;
+}
+struct Ray {
+    vec3 o;
+    vec3 d;
+};
+struct SSTraceRecord {
+    Ray ray;
+    vec2 pixel;
+    // float depth;
+};
+struct HitRecord {
+    // float world_t;
+    float screen_t;
+    vec2 pixel;
+};
+
+struct Frame {
+    vec3 T; //x
+    vec3 N; //y
+    vec3 B; //z
+};
+Frame frame_from1(vec3 n){
+    Frame self;
+    vec3 t;
+    if(abs(n.x)>abs(n.y)){
+        t = normalize(vec3(-n.z, 0, n.x));
+    }else{
+        t = normalize(vec3(0, n.z, -n.y));
+    }
+    self.N = n;
+    self.T = t;
+    self.B = normalize(cross(self.N, self.T));
+    return self;
+}
+Frame frame_from2(vec3 up, vec3 n){
+    Frame self;
+    self.T = up;
+    self.N = n;
+    self.B = normalize(cross(up, n));
+    return self;
+}
+vec3 to_local(const Frame self, vec3 w){
+    return vec3(dot(w, self.T), dot(w, self.N), dot(w, self.B));
+}
+vec3 to_world(const Frame self, vec3 w){
+    return self.T * w.x + self.N * w.y + self.B * w.z;
+}
+bool trace(const in SSTraceRecord record, inout HitRecord hit){
+    // x -> eye
+    vec3 view_dir = -normalize(imageLoad(t_world_pos, ivec2(record.pixel)).xyz - eye_pos);
+    Frame frame = frame_from2(vec3(0,1,0),view_dir);
+    vec3 dir = to_local(frame, record.ray.d);
+    //vec2 pixel = vec2(record.pixel);
+    vec3 origin = vec3(record.pixel.x, record.pixel.y, length(record.ray.o - eye_pos));
+    float screen_t = 0.0;
+    for(int iter = 0; iter < 100; iter++){
+        vec3 p = origin + screen_t * dir;
+        ivec2 pixel = ivec2(p.xz);
+        vec3 x = imageLoad(t_world_pos, pixel).xyz;
+        float depth = length(x - eye_pos);
+        if(p.z >= depth) {
+            hit.screen_t = screen_t;
+            hit.pixel = p.xz;
+            return true;
+        }
+        screen_t += 1.0;
+    }
+    return false;
+} 
+vec2 sample_disk(){
+    float r = rand();
+    float theta = rand() * 2.0 * PI;
+    r = sqrt(r);
+    return r * vec2(sin(theta), cos(theta));
+}
+vec3 sample_hemisphere(){
+    vec2 uv = sample_disk();
+    float r = length(uv);
+    float h = 1.0 - r;
+    return vec3(uv.x, h, uv.y);
+}
+vec3 ssgi(ivec2 pixel){
+    vec3 L = vec3(0);
+    vec3 beta = vec3(1);
+    
+    for(int bounce =0; bounce <= 1; bounce++){
+        L += beta * direct_lighting(pixel);
+        vec3 normal = imageLoad(t_normal, pixel).xyz;
+        vec3 w = sample_hemisphere();
+        float pdf = abs(w.y) / PI;
+        Frame frame = frame_from1(normal);
+        w = to_world(frame, w);
+        Ray ray = Ray(imageLoad(t_world_pos, pixel).xyz, w);
+        SSTraceRecord record;
+        record.ray = ray;
+        record.pixel = pixel;
+        // record.depth = 
+        vec3 bsdf = vec3(1) / PI;
+        
+        beta *= bsdf / pdf * abs(dot(normal, w));
+        HitRecord hit;
+        if(trace(record, hit)){
+            pixel = ivec2(pixel);
+        }else{
+            break;
+        }
+    }
+    return L;
+}
 void main(){
     ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
     ivec2 image_size = imageSize(color_buf);
@@ -63,27 +190,7 @@ void main(){
     pixel_idx = pixel.x + pixel.y * image_width;
     seed = seeds[pixel_idx];
 
-    vec3 x = imageLoad(t_world_pos, pixel).xyz;
-    vec3 normal = imageLoad(t_normal, pixel).xyz;
-    vec3 offset_x = offset_ray(x, normal);
-    bool in_shadow = false;
-    
-    vec3 wi = (light.position - x);
-    float dist_sqr = dot(wi, wi);
-    float dist = sqrt(dist_sqr);
-    wi /= dist;
-
-    float shadow_depth = texture(samplerCube(shadow_map, s_sampler), -vec3(-wi.x,wi.yz)).x;
-    vec3 L = vec3(0);
-
-
-    in_shadow = length(light.position - offset_x) * 0.95 >= shadow_depth;
-    
-    if(!in_shadow ) {
-        
-        L += vec3(1) * max(0.0,dot(normal, wi)) / dist_sqr;
-    }
-
+    vec3 L = ssgi(pixel);
     seeds[pixel_idx] = seed;
 
     imageStore(color_buf, pixel, vec4(L, 1.0));

@@ -1,4 +1,5 @@
 use super::{Buffer, BufferData};
+use glm::Vec3;
 use nalgebra as na;
 use nalgebra_glm as glm;
 
@@ -71,6 +72,7 @@ pub fn opengl_to_wgpu_matrix()-> glm::Mat4 {
 // }
 pub trait Camera {
     fn build_view_projection_matrix(&self) -> ViewProjection;
+    fn pos(&self) -> Vec3;
 }
 
 pub struct OribitalCamera {
@@ -99,6 +101,9 @@ impl Camera for LookAtCamera {
         );
         ViewProjection(view, opengl_to_wgpu_matrix() * proj)
     }
+    fn pos(&self) -> Vec3 {
+        self.eye
+    }
 }
 
 impl Camera for OribitalCamera {
@@ -117,5 +122,13 @@ impl Camera for OribitalCamera {
             self.perspective.zfar,
         );
         ViewProjection(view, opengl_to_wgpu_matrix() * proj)
+    }
+    fn pos(&self) -> Vec3 {
+        let dir = glm::vec3(
+            self.phi.sin() * self.theta.sin(),
+            self.theta.cos(),
+            self.phi.cos() * self.theta.sin(),
+        );
+        self.center + self.radius * dir
     }
 }

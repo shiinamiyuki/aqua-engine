@@ -475,6 +475,7 @@ impl RenderPass for DeferredShadingPass {
                 cubemap: self.shadow_cube_map.clone(),
                 gbuffer: self.gbuffer.clone(),
                 color: self.color_buffer.clone(),
+                eye_pos: camera.pos(),
             };
             self.ssgi_pass
                 .record_command(ctx, frame_ctx, camera, &input, encoder)

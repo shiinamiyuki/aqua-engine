@@ -1,5 +1,6 @@
 use std::{path::Path, sync::Arc};
 
+use nalgebra_glm::Vec3;
 use rand::Rng;
 use wgpu::util::DeviceExt;
 
@@ -95,7 +96,7 @@ impl SSGIPass {
                     ],
                     push_constant_ranges: &[wgpu::PushConstantRange {
                         stages: wgpu::ShaderStage::COMPUTE,
-                        range: 0..12,
+                        range: 0..(4 + 4 + 4 + 4 * 3),
                     }],
                 });
         let pipeline =
@@ -141,6 +142,7 @@ pub struct SSGIPassInput {
     pub cubemap: Arc<CubeMap>,
     pub gbuffer: GBuffer,
     pub color: Arc<Texture>,
+    pub eye_pos: Vec3,
 }
 impl RenderPass for SSGIPass {
     type Input = SSGIPassInput;
@@ -200,7 +202,7 @@ impl RenderPass for SSGIPass {
                 input.color.extent.height as i32,
             ]),
         );
-
+        compute_pass.set_push_constants(4 * 3, bytemuck::cast_slice(input.eye_pos.as_slice()));
         compute_pass.set_bind_group(0, &bindgroup0, &[]);
         compute_pass.set_bind_group(1, &bindgroup1, &[]);
 
