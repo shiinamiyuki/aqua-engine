@@ -28,7 +28,7 @@ impl Texture {
         let size = wgpu::Extent3d {
             width: size.0,
             height: size.1,
-            depth: 1,
+            depth_or_array_layers:1,
         };
         let desc = wgpu::TextureDescriptor {
             label: Some(label),
@@ -64,7 +64,7 @@ impl Texture {
             // 2.
             width: size.0,  //sc_desc.width,
             height: size.1, //sc_desc.height,
-            depth: 1,
+            depth_or_array_layers: 1,
         };
         let desc = wgpu::TextureDescriptor {
             label: Some(label),
@@ -120,7 +120,7 @@ impl CubeMap {
         let size = wgpu::Extent3d {
             width: res,
             height: res,
-            depth: 6,
+            depth_or_array_layers: 6,
         };
         let desc = wgpu::TextureDescriptor {
             label: Some(label),

@@ -9,11 +9,13 @@ use crate::render::{
 
 use super::{GBuffer, GBufferPass, GBufferPassInput, ShadowPass, ShadowPassInput};
 
+
 pub struct ShadowMapPass {
     pub pipeline: wgpu::ComputePipeline,
     pub bind_group_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
     light: Buffer<PointLightData>,
+    // seeds: wgpu::Buffer,
     // light_vp: Buffer<UniformViewProjection>,
 }
 
@@ -34,7 +36,7 @@ impl ShadowMapPass {
                     binding: 0,
                     visibility: wgpu::ShaderStage::COMPUTE,
                     ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Depth,
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
                         view_dimension: wgpu::TextureViewDimension::D2,
                         multisampled: false,
                     },
@@ -100,6 +102,14 @@ impl ShadowMapPass {
         //     &[UniformViewProjection::default(); 6],
         //     Some("light_view.vp"),
         // );
+           // let mut rng = rand::thread_rng();
+        // let seeds_data: Vec<u32> = (0..(1920 * 1080)).map(|_| {
+        //     rng.gen::<u32>()
+        // }).collect();
+        // let seeds = device.create_buffer_init(&wgpu::BufferInitDescriptor {
+        //     label:Some("seeds"),
+        //     contents:bytemuck::cast_slice(&seeds_data[..])
+        // });
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor::default());
         Self {
             pipeline,
@@ -252,7 +262,7 @@ impl RenderFrameBufferPass {
                     attributes: &[wgpu::VertexAttribute {
                         offset: 0,
                         shader_location: 0,
-                        format: wgpu::VertexFormat::Float3,
+                        format: wgpu::VertexFormat::Float32x3,
                     }],
                 }],
             },
@@ -261,16 +271,20 @@ impl RenderFrameBufferPass {
                 entry_point: "main",
                 targets: &[wgpu::ColorTargetState {
                     format: wgpu::TextureFormat::Bgra8UnormSrgb,
-                    alpha_blend: wgpu::BlendState::REPLACE,
-                    color_blend: wgpu::BlendState::REPLACE,
+                    blend: Some(wgpu::BlendState {
+                        alpha: wgpu::BlendComponent::REPLACE,
+                        color: wgpu::BlendComponent::REPLACE,
+                    }),
                     write_mask: wgpu::ColorWrite::ALL,
                 }],
             }),
             primitive: wgpu::PrimitiveState {
+                clamp_depth: false,
+                conservative: false,
                 topology: wgpu::PrimitiveTopology::TriangleList, // 1.
                 strip_index_format: None,
                 front_face: wgpu::FrontFace::Ccw, // 2.
-                cull_mode: wgpu::CullMode::Back,
+                cull_mode: Some(wgpu::Face::Back),
                 polygon_mode: wgpu::PolygonMode::Fill,
             },
             depth_stencil: None,
@@ -331,8 +345,8 @@ impl RenderPass for RenderFrameBufferPass {
             });
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("Render Pass"),
-            color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
-                attachment: &frame_ctx.frame.view,
+            color_attachments: &[wgpu::RenderPassColorAttachment {
+                view: &frame_ctx.frame.view,
                 resolve_target: None,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(wgpu::Color {

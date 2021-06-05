@@ -1,6 +1,6 @@
 use std::{path::Path, sync::Arc};
 
-use render::{LookAtCamera, Perspective, opengl_to_wgpu_matrix};
+use render::{opengl_to_wgpu_matrix, LookAtCamera, Perspective};
 use wgpu::util::DeviceExt;
 
 use crate::glm;
@@ -20,6 +20,7 @@ pub struct ShadowPass {
     bindgroup: wgpu::BindGroup,
     depth: Texture,
     cubemap_res: u32,
+    
 }
 
 impl ShadowPass {
@@ -82,19 +83,23 @@ impl ShadowPass {
             fragment: Some(wgpu::FragmentState {
                 module: &fs,
                 entry_point: "main",
-                targets: &[ wgpu::ColorTargetState {
+                targets: &[wgpu::ColorTargetState {
                     format: wgpu::TextureFormat::R32Float,
-                    alpha_blend: wgpu::BlendState::REPLACE,
-                    color_blend: wgpu::BlendState::REPLACE,
+                    blend: Some(wgpu::BlendState {
+                        alpha: wgpu::BlendComponent::REPLACE,
+                        color: wgpu::BlendComponent::REPLACE,
+                    }),
                     write_mask: wgpu::ColorWrite::ALL,
-                },],
+                }],
             }),
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleList,
                 strip_index_format: None,
                 front_face: wgpu::FrontFace::Ccw,
-                cull_mode: wgpu::CullMode::Back,
+                cull_mode: Some(wgpu::Face::Back),
                 polygon_mode: wgpu::PolygonMode::Fill,
+                clamp_depth: false,
+                conservative: false,
             },
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: Texture::DEPTH_FORMAT,
@@ -102,7 +107,6 @@ impl ShadowPass {
                 depth_compare: wgpu::CompareFunction::Less,
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
-                clamp_depth: false,
             }),
             multisample: wgpu::MultisampleState {
                 count: 1,
@@ -115,6 +119,7 @@ impl ShadowPass {
             &Size(cubemap_res, cubemap_res),
             "shadow.depth",
         );
+     
         Self {
             light_vp,
             pipeline,
@@ -168,8 +173,8 @@ impl RenderPass for ShadowPass {
         for face in 0..6 {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("shadow.pass"),
-                color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
-                    attachment: &input.cubemap.face_views[face as usize],
+                color_attachments: &[wgpu::RenderPassColorAttachment {
+                    view: &input.cubemap.face_views[face as usize],
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color {
@@ -181,8 +186,8 @@ impl RenderPass for ShadowPass {
                         store: true,
                     },
                 }],
-                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachmentDescriptor {
-                    attachment: &self.depth.view,
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.depth.view,
                     depth_ops: Some(wgpu::Operations {
                         load: wgpu::LoadOp::Clear(1.0),
                         store: true,

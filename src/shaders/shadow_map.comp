@@ -6,6 +6,7 @@ struct PointLight {
     vec3 emission;
 };
 
+precision highp samplerCube;
 layout(set=0, binding=0, r32f) uniform image2D color_buf;
 layout(set=0, binding=1) uniform sampler s_sampler;
 layout(set=0, binding=2) uniform textureCube shadow_map;
@@ -62,7 +63,7 @@ void main(){
     vec3 L = vec3(0);
 
 
-    in_shadow = length(light.position - offset_x) * 0.97 >= shadow_depth;
+    in_shadow = length(light.position - offset_x) * 0.95 >= shadow_depth;
     
     if(!in_shadow ) {
         

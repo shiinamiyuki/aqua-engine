@@ -1,5 +1,6 @@
 use shaderc::{Compiler, ShaderKind};
 
+
 pub fn compile_shader_file(
     path: &std::path::Path,
     shader_kind: ShaderKind,

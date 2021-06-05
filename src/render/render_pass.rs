@@ -10,9 +10,9 @@ pub struct ColorAttachment<'a> {
     pub view: &'a wgpu::TextureView,
 }
 impl <'a> ColorAttachment<'a> {
-    pub fn get_descriptor(&self) -> wgpu::RenderPassColorAttachmentDescriptor {
-        wgpu::RenderPassColorAttachmentDescriptor {
-            attachment: &self.view,
+    pub fn get_descriptor(&self) -> wgpu::RenderPassColorAttachment {
+        wgpu::RenderPassColorAttachment {
+            view: &self.view,
             resolve_target: None,
             ops: wgpu::Operations {
                 load: wgpu::LoadOp::Clear(wgpu::Color {

@@ -26,7 +26,7 @@ impl GBuffer {
                         ty: wgpu::BindingType::Texture {
                             sample_type: wgpu::TextureSampleType::Depth,
                             view_dimension: wgpu::TextureViewDimension::D2,
-                            multisampled: false
+                            multisampled: false,
                         },
                         binding: 0,
                         count: None,
@@ -169,16 +169,20 @@ impl GBufferPass {
                 targets: &[
                     wgpu::ColorTargetState {
                         // 4.
-                        format: wgpu::TextureFormat::Rgba32Float,
-                        alpha_blend: wgpu::BlendState::REPLACE,
-                        color_blend: wgpu::BlendState::REPLACE,
+                        format: GBuffer::NORMAL_FORMAT,
+                        blend: Some(wgpu::BlendState {
+                            alpha: wgpu::BlendComponent::REPLACE,
+                            color: wgpu::BlendComponent::REPLACE,
+                        }),
                         write_mask: wgpu::ColorWrite::ALL,
                     },
                     wgpu::ColorTargetState {
                         // 4.
-                        format: wgpu::TextureFormat::Rgba32Float,
-                        alpha_blend: wgpu::BlendState::REPLACE,
-                        color_blend: wgpu::BlendState::REPLACE,
+                        format: GBuffer::WOLRD_POS_FORMAT,
+                        blend: Some(wgpu::BlendState {
+                            alpha: wgpu::BlendComponent::REPLACE,
+                            color: wgpu::BlendComponent::REPLACE,
+                        }),
                         write_mask: wgpu::ColorWrite::ALL,
                     },
                 ],
@@ -187,8 +191,10 @@ impl GBufferPass {
                 topology: wgpu::PrimitiveTopology::TriangleList, // 1.
                 strip_index_format: None,
                 front_face: wgpu::FrontFace::Ccw, // 2.
-                cull_mode: wgpu::CullMode::Back,
+                cull_mode: Some(wgpu::Face::Back),
                 polygon_mode: wgpu::PolygonMode::Fill,
+                clamp_depth: false,
+                conservative:false,
             },
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: Texture::DEPTH_FORMAT,
@@ -196,7 +202,7 @@ impl GBufferPass {
                 depth_compare: wgpu::CompareFunction::Less,
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
-                clamp_depth: false,
+                
             }),
             multisample: wgpu::MultisampleState {
                 count: 1,
@@ -236,15 +242,15 @@ impl RenderPass for GBufferPass {
                 view: &input.gbuffer.world_pos.view,
             },
         ];
-        let attachment_descs: Vec<wgpu::RenderPassColorAttachmentDescriptor> = color_attachments
+        let attachment_descs: Vec<wgpu::RenderPassColorAttachment> = color_attachments
             .iter()
             .map(|color| color.get_descriptor())
             .collect();
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("Render Pass"),
             color_attachments: &attachment_descs[..],
-            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachmentDescriptor {
-                attachment: &input.gbuffer.depth.view,
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: &input.gbuffer.depth.view,
                 depth_ops: Some(wgpu::Operations {
                     load: wgpu::LoadOp::Clear(1.0),
                     store: true,
