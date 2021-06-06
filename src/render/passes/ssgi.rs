@@ -4,10 +4,7 @@ use nalgebra_glm::Vec3;
 use rand::Rng;
 use wgpu::util::DeviceExt;
 
-use crate::render::{
-    compile_shader_file, Buffer, BufferData, Camera, CubeMap, FrameContext, GPUScene, PointLight,
-    PointLightData, RenderContext, RenderPass, Scene, Size, Texture, UniformViewProjection, Vertex,
-};
+use crate::render::{Buffer, BufferData, Camera, CubeMap, FrameContext, GPUScene, PointLight, PointLightData, RenderContext, RenderPass, Scene, Size, Texture, UniformViewProjection, Vertex, ViewProjection, compile_shader_file};
 
 use super::{GBuffer, GBufferPass, GBufferPassInput};
 
@@ -17,6 +14,8 @@ pub struct SSGIPass {
     sampler: wgpu::Sampler,
     light: Buffer<PointLightData>,
     seeds: wgpu::Buffer,
+    camera_uniform: Buffer<UniformViewProjection>,
+    camera_bindgroup: wgpu::BindGroup,
     // light_vp: Buffer<UniformViewProjection>,
 }
 
@@ -76,7 +75,7 @@ impl SSGIPass {
                     binding: 4,
                     visibility: wgpu::ShaderStage::COMPUTE,
                     ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
+                        ty: wgpu::BufferBindingType::Storage { read_only: false },
                         has_dynamic_offset: false,
                         min_binding_size: None,
                     },
@@ -85,6 +84,11 @@ impl SSGIPass {
             ],
             label: Some("ssgi.bindgroup.layout"),
         });
+        let camera_uniform = Buffer::<UniformViewProjection>::new_uniform_buffer(
+            &ctx.device_ctx,
+            &[UniformViewProjection::default()],
+            None,
+        );
         let pipeline_layout =
             ctx.device_ctx
                 .device
@@ -96,7 +100,7 @@ impl SSGIPass {
                     ],
                     push_constant_ranges: &[wgpu::PushConstantRange {
                         stages: wgpu::ShaderStage::COMPUTE,
-                        range: 0..(4 + 4 + 4 + 4 * 3),
+                        range: 0..(4 * 4 * 3),
                     }],
                 });
         let pipeline =
@@ -123,6 +127,30 @@ impl SSGIPass {
                 | wgpu::BufferUsage::UNIFORM,
         });
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor::default());
+
+        let camera_uniform = Buffer::<UniformViewProjection>::new_uniform_buffer(
+            &ctx.device_ctx,
+            &[UniformViewProjection::default()],
+            None,
+        );
+        let camera_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[camera_uniform.bindgroup_layout_entry(
+                    0,
+                    wgpu::ShaderStage::VERTEX,
+                    wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                )],
+                label: Some("ssgi.bindgroup_layout.2"),
+            });
+        let camera_bindgroup = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            entries: &[camera_uniform.bindgroup_entry(0)],
+            label: Some("ssgi.bindgroup.2"),
+            layout: &camera_bind_group_layout,
+        });
         Self {
             pipeline,
             bind_group_layout,
@@ -133,6 +161,8 @@ impl SSGIPass {
                 Some("ssgi.point_light"),
             ), // light_vp,
             seeds,
+            camera_bindgroup,
+            camera_uniform,
         }
     }
 }
@@ -142,7 +172,9 @@ pub struct SSGIPassInput {
     pub cubemap: Arc<CubeMap>,
     pub gbuffer: GBuffer,
     pub color: Arc<Texture>,
+    pub view_dir: Vec3,
     pub eye_pos: Vec3,
+    pub vp: ViewProjection
 }
 impl RenderPass for SSGIPass {
     type Input = SSGIPassInput;
@@ -190,6 +222,12 @@ impl RenderPass for SSGIPass {
                 layout: &self.bind_group_layout,
             });
         let bindgroup1 = input.gbuffer.create_bind_group(&ctx.device_ctx);
+        self.camera_uniform.upload(
+            &ctx.device_ctx,
+            &[UniformViewProjection::new(
+                &input.vp,
+            )],
+        );
         let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
             label: Some("SSGI pass"),
         });
@@ -202,10 +240,15 @@ impl RenderPass for SSGIPass {
                 input.color.extent.height as i32,
             ]),
         );
-        compute_pass.set_push_constants(4 * 3, bytemuck::cast_slice(input.eye_pos.as_slice()));
+        // println!("{}", input.view_dir);
+        compute_pass.set_push_constants(4 * 4, bytemuck::cast_slice(input.view_dir.as_slice()));
+        compute_pass.set_push_constants(
+            4 * 4 + 4 * 4,
+            bytemuck::cast_slice(input.eye_pos.as_slice()),
+        );
         compute_pass.set_bind_group(0, &bindgroup0, &[]);
         compute_pass.set_bind_group(1, &bindgroup1, &[]);
-
+        compute_pass.set_bind_group(2, &self.camera_bindgroup, &[]);
         compute_pass.dispatch(
             (input.color.extent.width + 15) / 16,
             (input.color.extent.height + 15) / 16,

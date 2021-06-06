@@ -73,6 +73,7 @@ pub fn opengl_to_wgpu_matrix()-> glm::Mat4 {
 pub trait Camera {
     fn build_view_projection_matrix(&self) -> ViewProjection;
     fn pos(&self) -> Vec3;
+    fn dir(&self) -> Vec3;
 }
 
 pub struct OribitalCamera {
@@ -104,6 +105,9 @@ impl Camera for LookAtCamera {
     fn pos(&self) -> Vec3 {
         self.eye
     }
+    fn dir(&self) -> Vec3 {
+        glm::normalize(&(self.center - self.eye))
+    }
 }
 
 impl Camera for OribitalCamera {
@@ -130,5 +134,13 @@ impl Camera for OribitalCamera {
             self.phi.cos() * self.theta.sin(),
         );
         self.center + self.radius * dir
+    }
+    fn dir(&self) -> Vec3 {
+        let dir = glm::vec3(
+            self.phi.sin() * self.theta.sin(),
+            self.theta.cos(),
+            self.phi.cos() * self.theta.sin(),
+        );
+        -dir
     }
 }
