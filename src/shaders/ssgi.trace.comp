@@ -63,24 +63,7 @@ vec3 offset_ray(const vec3 p, const vec3 n)
                 abs(p.y) < origin() ? p.y+ float_scale()*n.y : p_i.y,
                 abs(p.z) < origin() ? p.z+ float_scale()*n.z : p_i.z);
 }
-vec3 direct_lighting(ivec2 pixel) {
-    vec3 x = imageLoad(t_world_pos, pixel).xyz;
-    vec3 normal = imageLoad(t_normal, pixel).xyz;
-    vec3 offset_x = offset_ray(x, normal);
-    
-    vec3 wi = (light.position - x);
-    float dist_sqr = dot(wi, wi);
-    float dist = sqrt(dist_sqr);
-    wi /= dist;
 
-    float shadow_depth = texture(samplerCube(shadow_map, s_sampler), -vec3(-wi.x,wi.yz)).x;
-    
-    bool in_shadow = length(light.position - offset_x) * 0.95 >= shadow_depth;
-    vec3 L = vec3(0);
-    vec3 bsdf = vec3(1) /  PI;
-    L += bsdf * max(0.0,dot(normal, wi)) / dist_sqr;
-    return L;
-}
 struct Ray {
     vec3 o;
     vec3 d;
@@ -119,6 +102,7 @@ Frame frame_from1(vec3 n){
     self.B = normalize(cross(self.N, self.T));
     return self;
 }
+
 Frame ssframe(vec3 w){
 
 /*
@@ -141,6 +125,68 @@ vec3 to_local(const Frame self, vec3 w){
 vec3 to_world(const Frame self, vec3 w){
     return self.T * w.x + self.N * w.y + self.B * w.z;
 }
+struct BSDF {
+    Frame frame;
+    vec3 n;
+    vec3 color;
+};
+BSDF get_bsdf(ivec2 pixel){
+    BSDF bsdf;
+    vec3 normal = imageLoad(t_normal, pixel).xyz;
+    bsdf.frame = frame_from1(normal);
+    bsdf.n = normal;
+    bsdf.color = vec3(1);
+    return bsdf;
+}
+vec3 evaluate_bsdf(const BSDF bsdf, vec3 wo, vec3 wi){
+    wo = to_local(bsdf.frame, wo);
+    wi = to_local(bsdf.frame, wi);
+    if(wo.y * wi.y > 0.0){
+        return bsdf.color / PI;
+    }else{
+        return vec3(0);
+    }
+}
+struct BSDFSample {
+    vec3 f;
+    float pdf;
+    vec3 wi;
+    
+};
+vec3 sample_hemisphere();
+BSDFSample sample_bsdf(const BSDF bsdf, vec3 wo){
+    vec3 w = sample_hemisphere();
+    float pdf = abs(w.y) / PI;
+    vec3 f = bsdf.color / PI;
+    wo = to_local(bsdf.frame, wo);
+    if(wo.y * w.y < 0.0){
+        w.y = -w.y;
+    }
+    w = to_world(bsdf.frame, w);
+    return BSDFSample(f, pdf, w);
+}
+
+
+vec3 direct_lighting(const BSDF bsdf, ivec2 pixel, const vec3 wo) {
+    vec3 x = imageLoad(t_world_pos, pixel).xyz;
+    vec3 normal = imageLoad(t_normal, pixel).xyz;
+    vec3 offset_x = offset_ray(x, normal);
+    
+    vec3 wi = (light.position - x);
+    
+    float dist_sqr = dot(wi, wi);
+    float dist = sqrt(dist_sqr);
+    wi /= dist;
+
+    float shadow_depth = texture(samplerCube(shadow_map, s_sampler), -vec3(-wi.x,wi.yz)).x;
+    
+    bool in_shadow = length(light.position - offset_x) * 0.95 >= shadow_depth;
+    vec3 L = vec3(0);
+    vec3 f = evaluate_bsdf(bsdf, wo, wi);
+    L += f * max(0.0,dot(normal, wi)) / dist_sqr;
+    return L;
+}
+
 vec3 project_point(mat4 m, vec3 p){
     vec4 h = m * vec4(p, 1.0);
     return h.xyz / h.w;
@@ -288,33 +334,28 @@ vec3 ssgi(ivec2 pixel){
     vec3 beta = vec3(1);
     vec3 debug = vec3(0);
     float gi_boost = 0.0;
-    for(int bounce =0; bounce <= 4; bounce++){
-        // if(bounce > 0)
+    vec3 wo = -normalize(imageLoad(t_world_pos, pixel).xyz - eye_pos);
+    for(int bounce =0; bounce <= 1; bounce++){
+        BSDF bsdf = get_bsdf(pixel);
         float boost = bounce == 0 ? 1.0 : (1.0 + gi_boost);
-        L += beta * boost * direct_lighting(pixel);
-        vec3 normal = imageLoad(t_normal, pixel).xyz;
-        vec3 w = sample_hemisphere();
-        float pdf = abs(w.y) / PI;
-        Frame frame = frame_from1(normal);
-        w = to_world(frame, w);
+        // if(bounce > 0)
+            L += beta * boost * direct_lighting(bsdf, pixel, wo);
+        
+        BSDFSample bsdf_sample = sample_bsdf(bsdf, wo);
+        vec3 w = bsdf_sample.wi;
         Ray ray = Ray(imageLoad(t_world_pos, pixel).xyz, w);
         SSTraceRecord record;
         record.ray = ray;
         record.pixel = pixel;
-        // record.depth = 
         record.tmax = 100.0;
-        vec3 bsdf = vec3(1) / PI;
-        
-        beta *= bsdf / pdf * abs(dot(normal, w));
+        beta *= bsdf_sample.f / bsdf_sample.pdf * abs(dot(bsdf.n, w));
         HitRecord hit;
         if(trace(record, hit, debug)){
             pixel = ndc_to_int(hit.pixel);
-            // L = vec3(1);
-            // break;
         }else{
-            // L += beta * vec3(0.2);
             break;
         }
+        wo = -ray.d;
     }
     return L;
 }
@@ -338,32 +379,32 @@ vec3 ssao(ivec2 pixel){
         return vec3(1);
     }
 }
-vec3 ssr(ivec2 pixel){
-    vec3 normal = imageLoad(t_normal, pixel).xyz;
-    vec3 x = imageLoad(t_world_pos, pixel).xyz;
-    vec3 L = vec3(0);
-    if(x.y < 0.1 && normal.y > 0.99){
-        vec3 wo = normalize(x - eye_pos);
-        vec3 wi = reflect(wo, normal);
-        Ray ray = Ray(x, wi);
-        SSTraceRecord record;
-        record.ray = ray;
-        record.pixel = pixel;
-            // record.depth = 
-        record.tmax = 100.0;
-        vec3 debug;
-        HitRecord hit;
-         if(trace(record, hit, debug)){
-            pixel = ndc_to_int(hit.pixel);
-            return direct_lighting(pixel);
-        }else{
-            return vec3(0);
-        }
-    }else{
-        L =  direct_lighting(pixel);
-    }
-    return L;
-}
+// vec3 ssr(ivec2 pixel){
+//     vec3 normal = imageLoad(t_normal, pixel).xyz;
+//     vec3 x = imageLoad(t_world_pos, pixel).xyz;
+//     vec3 L = vec3(0);
+//     if(x.y < 0.1 && normal.y > 0.99){
+//         vec3 wo = normalize(x - eye_pos);
+//         vec3 wi = reflect(wo, normal);
+//         Ray ray = Ray(x, wi);
+//         SSTraceRecord record;
+//         record.ray = ray;
+//         record.pixel = pixel;
+//             // record.depth = 
+//         record.tmax = 100.0;
+//         vec3 debug;
+//         HitRecord hit;
+//          if(trace(record, hit, debug)){
+//             pixel = ndc_to_int(hit.pixel);
+//             return direct_lighting(pixel);
+//         }else{
+//             return vec3(0);
+//         }
+//     }else{
+//         L =  direct_lighting(pixel);
+//     }
+//     return L;
+// }
 void main(){
     ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
     ivec2 image_size = imageSize(color_buf);
@@ -373,11 +414,11 @@ void main(){
     seed = seeds[pixel_idx];
 
     vec3 L = vec3(0);//ssgi(pixel);
-    int spp = 4;
+    int spp = 1;
     for(int i=0;i<spp;i++){
         L += ssgi(pixel) / spp;
     }
-    seeds[pixel_idx] = seed;
+    // seeds[pixel_idx] = seed;
 
     imageStore(color_buf, pixel, vec4(L, 1.0));
 }
