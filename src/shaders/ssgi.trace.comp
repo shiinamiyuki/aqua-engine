@@ -84,6 +84,11 @@ struct Ray {
     vec3 o;
     vec3 d;
 };
+struct ScreenSpaceRay {
+    vec3 o;
+    vec3 d;
+    // float tmax;
+};
 struct SSTraceRecord {
     Ray ray;
     vec2 pixel;
@@ -135,46 +140,109 @@ vec3 to_local(const Frame self, vec3 w){
 vec3 to_world(const Frame self, vec3 w){
     return self.T * w.x + self.N * w.y + self.B * w.z;
 }
+vec3 project_point(mat4 m, vec3 p){
+    vec4 h = m * vec4(p, 1.0);
+    return h.xyz / h.w;
+}
+ScreenSpaceRay create_ss_ray(const Ray ray, float tmax){
+    // mat4 vp = VP.proj * VP.view;
+    // vec4 p0 = project_point(ray.o);
+    // vec4 p1 = project_point(ray.o + ray.d);
+
+    vec3 p0 = project_point(VP.view, ray.o);
+    vec3 d = normalize(mat3(VP.view) * ray.d) * tmax;
+    // vec3 p1 = project_point(VP.view, ray.o + tmax * ray.d);
+    // vec3 d = normalize(p1 - p0);
+    // float t = tmax;
+    if(d.z > 0.0){
+        tmax = abs(p0.z / d.z) * 0.999;
+        
+    }
+    vec3 p1 = p0 + tmax * d;
+    p0 = project_point(VP.proj, p0);
+    p1 = project_point(VP.proj, p1);
+    ScreenSpaceRay ssray;
+    ssray.o = p0;
+    ssray.d = p1 - p0;
+    // tmax = length(p1 - p0);
+    // float pixel_dist = length(p1.xy - p0.xy);
+    // ray.tmax = tmax;
+    return ssray;
+    
+}
+ivec2 ndc_to_int(vec2 p){
+    p.y = -p.y;
+    return ivec2((p + 1.0) / 2.0  * vec2(image_width, image_height));
+}
+vec2 ndc_to_tc(vec2 p){
+    p.y = -p.y;
+    return (p + 1.0) / 2.0;
+}
 bool trace(const in SSTraceRecord record, inout HitRecord hit, inout vec3 debug){
-    // x -> eye
-    float near = 0.001;
-    float far = 1000.0;
-    mat4 vp = VP.proj * VP.view;
-    float ray_length = record.tmax;
-    vec3 p0 = record.ray.o;
-    vec3 p1 = p0 + ray_length * record.ray.d;
-    vec4 cs_p0 = vp * vec4(p0, 1.0);
-    vec4 cs_p1 = vp * vec4(p1, 1.0);
-    vec3 clip_p0 = cs_p0.xyz / cs_p0.w;
-    vec3 clip_p1 = cs_p1.xyz / cs_p1.w;
-    vec2 ss_p0 = clip_p0.xy;
-    vec2 ss_p1 = clip_p1.xy;
-    float ss_ray_length = length(ss_p0 - ss_p1);
-    int num_iters = 100;
-    float ray_step = ray_length / num_iters;
-    float t = 0.0;
-    for(int iter = 0;iter<num_iters;iter++){
-        t += ray_step;
-        vec3 p = record.ray.o + t * record.ray.d;
-        vec4 h = vp *vec4(p, 1.0);
-        vec3 cs_p = h.xyz / h.w;
-        vec2 ss_p = cs_p.xy;
-        ivec2 pixel = ivec2((vec2(ss_p.x, -ss_p.y) + 1.0) / 2.0 * vec2(image_width, image_height));
+    ScreenSpaceRay ray = create_ss_ray(record.ray, record.tmax);
+    if(dot(ray.d, ray.d)< 1e-5){
+        return false;
+    }
+    debug = vec3(normalize(vec2(ray.d.xy)), 0.0);
+    float pixel_dist = length(ray.d.xy);
+    float march_step = 1.0 / max(image_width, image_height);//1.0 / pixel_dist;
+    float t = march_step * 2.0;
+    while(t < pixel_dist){
+        vec3 p = ray.o + ray.d * t;
+        ivec2 pixel = ndc_to_int(p.xy);
         if(any(greaterThanEqual(pixel, ivec2(image_width, image_height))))
             return false;
         if(any(lessThan(pixel, ivec2(0))))
             return false;
-        vec3 x = imageLoad(t_world_pos, pixel).xyz;
-        float depth = length(x - eye_pos);
-        if(p.z >= depth) {
+        float depth = texture(sampler2D(t_depth, s_sampler),ndc_to_tc(p.xy)).x;
+        if(p.z > depth){
             hit.t = t;
-            hit.pixel = p.xz;
-            // debug = vec3(screen_t - 1.0);
+            hit.pixel = p.xy;
+    //         // debug = vec3(screen_t - 1.0);
             return true;
-        } 
+        }
+        t += march_step;
     }
-
     return false;
+    // x -> eye
+    // float near = 0.001;
+    // float far = 1000.0;
+    // mat4 vp = VP.proj * VP.view;
+    // float ray_length = record.tmax;
+    // vec3 p0 = record.ray.o;
+    // vec3 p1 = p0 + ray_length * record.ray.d;
+    // vec4 cs_p0 = vp * vec4(p0, 1.0);
+    // vec4 cs_p1 = vp * vec4(p1, 1.0);
+    // vec3 clip_p0 = cs_p0.xyz / cs_p0.w;
+    // vec3 clip_p1 = cs_p1.xyz / cs_p1.w;
+    // vec2 ss_p0 = clip_p0.xy;
+    // vec2 ss_p1 = clip_p1.xy;
+    // float ss_ray_length = length(ss_p0 - ss_p1);
+    // int num_iters = 100;
+    // float ray_step = ray_length / num_iters;
+    // float t = 0.0;
+    // for(int iter = 0;iter<num_iters;iter++){
+    //     t += ray_step;
+    //     vec3 p = record.ray.o + t * record.ray.d;
+    //     vec4 h = vp *vec4(p, 1.0);
+    //     vec3 cs_p = h.xyz / h.w;
+    //     vec2 ss_p = cs_p.xy;
+    //     ivec2 pixel = ivec2((vec2(ss_p.x, -ss_p.y) + 1.0) / 2.0 * vec2(image_width, image_height));
+    //     if(any(greaterThanEqual(pixel, ivec2(image_width, image_height))))
+    //         return false;
+    //     if(any(lessThan(pixel, ivec2(0))))
+    //         return false;
+    //     vec3 x = imageLoad(t_world_pos, pixel).xyz;
+    //     float depth = length(x - eye_pos);
+    //     if(p.z >= depth) {
+    //         hit.t = t;
+    //         hit.pixel = p.xz;
+    //         // debug = vec3(screen_t - 1.0);
+    //         return true;
+    //     } 
+    // }
+
+    // return false;
     // Frame frame = ssframe(normalize(view_dir));
     // vec3 dir = to_local(frame, record.ray.d);
     // debug = dir;
@@ -219,7 +287,8 @@ vec3 ssgi(ivec2 pixel){
     vec3 beta = vec3(1);
     vec3 debug = vec3(0);
     for(int bounce =0; bounce <= 1; bounce++){
-        L += beta * direct_lighting(pixel);
+        if(bounce > 0)
+            L += beta * direct_lighting(pixel);
         vec3 normal = imageLoad(t_normal, pixel).xyz;
         vec3 w = sample_hemisphere();
         float pdf = abs(w.y) / PI;
@@ -236,12 +305,59 @@ vec3 ssgi(ivec2 pixel){
         beta *= bsdf / pdf * abs(dot(normal, w));
         HitRecord hit;
         if(trace(record, hit, debug)){
-            pixel = ivec2(hit.pixel);
+            pixel = ndc_to_int(hit.pixel);
             // L = vec3(1);
             // break;
         }else{
+            // L += beta * vec3(0.2);
             break;
         }
+    }
+    return L;
+}
+vec3 ssao(ivec2 pixel){
+    vec3 normal = imageLoad(t_normal, pixel).xyz;
+    vec3 w = sample_hemisphere();
+    Frame frame = frame_from1(normal);
+    w = to_world(frame, w);
+    Ray ray = Ray(imageLoad(t_world_pos, pixel).xyz, w);
+    SSTraceRecord record;
+    record.ray = ray;
+    record.pixel = pixel;
+        // record.depth = 
+    record.tmax = 3.0;
+    vec3 debug;
+    HitRecord hit;
+    if(trace(record, hit, debug)){
+        pixel = ndc_to_int(hit.pixel);
+        return vec3(0);
+    }else{
+        return vec3(1);
+    }
+}
+vec3 ssr(ivec2 pixel){
+    vec3 normal = imageLoad(t_normal, pixel).xyz;
+    vec3 x = imageLoad(t_world_pos, pixel).xyz;
+    vec3 L = vec3(0);
+    if(x.y < 0.1 && normal.y > 0.99){
+        vec3 wo = normalize(x - eye_pos);
+        vec3 wi = reflect(wo, normal);
+        Ray ray = Ray(x, wi);
+        SSTraceRecord record;
+        record.ray = ray;
+        record.pixel = pixel;
+            // record.depth = 
+        record.tmax = 100.0;
+        vec3 debug;
+        HitRecord hit;
+         if(trace(record, hit, debug)){
+            pixel = ndc_to_int(hit.pixel);
+            return direct_lighting(pixel);
+        }else{
+            return vec3(0);
+        }
+    }else{
+        L =  direct_lighting(pixel);
     }
     return L;
 }

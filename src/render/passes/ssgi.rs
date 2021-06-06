@@ -4,7 +4,11 @@ use nalgebra_glm::Vec3;
 use rand::Rng;
 use wgpu::util::DeviceExt;
 
-use crate::render::{Buffer, BufferData, Camera, CubeMap, FrameContext, GPUScene, PointLight, PointLightData, RenderContext, RenderPass, Scene, Size, Texture, UniformViewProjection, Vertex, ViewProjection, compile_shader_file};
+use crate::render::{
+    compile_shader_file, Buffer, BufferData, Camera, CubeMap, FrameContext, GPUScene, PointLight,
+    PointLightData, RenderContext, RenderPass, Scene, Size, Texture, UniformViewProjection, Vertex,
+    ViewProjection,
+};
 
 use super::{GBuffer, GBufferPass, GBufferPassInput};
 
@@ -89,6 +93,24 @@ impl SSGIPass {
             &[UniformViewProjection::default()],
             None,
         );
+        let camera_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[camera_uniform.bindgroup_layout_entry(
+                    0,
+                    wgpu::ShaderStage::COMPUTE,
+                    wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                )],
+                label: Some("ssgi.bindgroup_layout.2"),
+            });
+        let camera_bindgroup = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            entries: &[camera_uniform.bindgroup_entry(0)],
+            label: Some("ssgi.bindgroup.2"),
+            layout: &camera_bind_group_layout,
+        });
         let pipeline_layout =
             ctx.device_ctx
                 .device
@@ -97,6 +119,7 @@ impl SSGIPass {
                     bind_group_layouts: &[
                         &bind_group_layout,
                         &GBuffer::bind_group_layout(&ctx.device_ctx),
+                        &camera_bind_group_layout,
                     ],
                     push_constant_ranges: &[wgpu::PushConstantRange {
                         stages: wgpu::ShaderStage::COMPUTE,
@@ -128,29 +151,6 @@ impl SSGIPass {
         });
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor::default());
 
-        let camera_uniform = Buffer::<UniformViewProjection>::new_uniform_buffer(
-            &ctx.device_ctx,
-            &[UniformViewProjection::default()],
-            None,
-        );
-        let camera_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                entries: &[camera_uniform.bindgroup_layout_entry(
-                    0,
-                    wgpu::ShaderStage::VERTEX,
-                    wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                )],
-                label: Some("ssgi.bindgroup_layout.2"),
-            });
-        let camera_bindgroup = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            entries: &[camera_uniform.bindgroup_entry(0)],
-            label: Some("ssgi.bindgroup.2"),
-            layout: &camera_bind_group_layout,
-        });
         Self {
             pipeline,
             bind_group_layout,
@@ -174,7 +174,7 @@ pub struct SSGIPassInput {
     pub color: Arc<Texture>,
     pub view_dir: Vec3,
     pub eye_pos: Vec3,
-    pub vp: ViewProjection
+    pub vp: ViewProjection,
 }
 impl RenderPass for SSGIPass {
     type Input = SSGIPassInput;
@@ -222,12 +222,8 @@ impl RenderPass for SSGIPass {
                 layout: &self.bind_group_layout,
             });
         let bindgroup1 = input.gbuffer.create_bind_group(&ctx.device_ctx);
-        self.camera_uniform.upload(
-            &ctx.device_ctx,
-            &[UniformViewProjection::new(
-                &input.vp,
-            )],
-        );
+        self.camera_uniform
+            .upload(&ctx.device_ctx, &[UniformViewProjection::new(&input.vp)]);
         let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
             label: Some("SSGI pass"),
         });
