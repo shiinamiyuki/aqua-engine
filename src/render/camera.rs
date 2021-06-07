@@ -21,8 +21,8 @@ impl Default for ViewProjection {
 impl Default for UniformViewProjection {
     fn default() -> Self {
         Self {
-            view: glm::identity::<f32, na::U4>().into(),
-            proj: glm::identity::<f32, na::U4>().into(),
+            view: glm::identity::<f32, 4>().into(),
+            proj: glm::identity::<f32, 4>().into(),
             // model: glm::identity::<f32, na::U4>().into(),
         }
     }

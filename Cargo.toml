@@ -7,18 +7,21 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-image = "0.23"
+nalgebra = {version ="0.26.2", features = ["serde-serialize"] }
+nalgebra-glm = "0.12.0"
+rayon = "1.5.0"
+image = "0.23.14"
+rand = "0.8.3"
+
 winit = "0.22"
 shaderc = "0.7"
 env_logger = "0.7"
 log = "0.4"
 futures = "0.3"
-nalgebra = "0.25.3"
-nalgebra-glm = "0.11.0"
 tobj = "2.0.4"
 bytemuck = { version = "1.4", features = [ "derive" ] }
-rand = "0.8.3"
 wgpu = "0.8.*"
+akari = {version="*",git="https://github.com/shiinamiyuki/akari_render_rs"}
 
 # [dependencies.wgpu]
 # version = "0.7"
