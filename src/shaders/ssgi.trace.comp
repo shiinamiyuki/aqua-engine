@@ -191,8 +191,10 @@ vec3 direct_lighting(const BSDF bsdf, ivec2 pixel, const vec3 wo) {
     
     bool in_shadow = length(light.position - offset_x) * 0.95 >= shadow_depth;
     vec3 L = vec3(0);
-    vec3 f = evaluate_bsdf(bsdf, wo, wi);
-    L += f * max(0.0, dot(normal, wi)) / dist_sqr;
+    if(!in_shadow){
+        vec3 f = evaluate_bsdf(bsdf, wo, wi);
+        L += f * max(0.0, dot(normal, wi)) / dist_sqr;
+    }
     return L;
 }
 
@@ -276,7 +278,10 @@ bool trace(const in SSTraceRecord record, inout HitRecord hit, inout vec3 debug)
     int accum_level0_steps = 0;
 
     while(t < ray.tmax){
-        float march_step = march_step_base * (1 << level);
+        float march_step = march_step_base;
+        for(int i =0;i<level;i++){
+            march_step *= 1.6;
+        }
         float next_t = t + march_step;
         
         vec3 p = ray.o + ray.d * next_t;
@@ -362,13 +367,7 @@ vec2 sample_disk(){
     r = sqrt(r);
     return r * vec2(sin(theta), cos(theta));
 }
-// struct Bounds2 {
-//     vec2 pmin;
-//     vec2 pmax;
-// };
-// Bounds2 get_bbox(ivec2 p, int level) {
 
-// }
 vec3 sample_hemisphere(){
     vec2 uv = sample_disk();
     float r = dot(uv, uv);
@@ -413,19 +412,16 @@ vec3 ssgi(ivec2 pixel){
 vec3 ssao(ivec2 pixel){
     vec3 normal = imageLoad(t_normal, pixel).xyz;
     vec3 w = sample_hemisphere();
-    // vec3 w = normalize()
-    // vec3 w = normalize(vec3(-0.4,0.0,0.4));
-    // Frame frame = frame_from1(normal);
-    // w = to_world(frame, w);
-    // return w.zzz;
-    // return w;
-    return vec3(1.0 / (w.y / PI) - 2.0 * PI);
+
+    Frame frame = frame_from1(normal);
+    w = to_world(frame, w);
+
     Ray ray = Ray(imageLoad(t_world_pos, pixel).xyz, w);
     SSTraceRecord record;
     record.ray = ray;
     record.pixel = pixel;
         // record.depth = 
-    record.tmax = 100.0;
+    record.tmax = 3.0;
     vec3 debug;
     HitRecord hit;
     if(trace(record, hit, debug)){
@@ -440,7 +436,7 @@ vec3 ssr(ivec2 pixel){
     vec3 x = imageLoad(t_world_pos, pixel).xyz;
     vec3 L = vec3(0);
     vec3 wo = -normalize(imageLoad(t_world_pos, pixel).xyz - eye_pos);
-    if(true){
+    if(normal.y > 0.0 && x.y < 0.1){
         vec3 wo = normalize(x - eye_pos);
         vec3 wi = reflect(wo, normal);
         Ray ray = Ray(x, wi);
@@ -483,6 +479,10 @@ void main(){
     // float depth0 = get_depth(pixel, 3);
     // // float depth1 = texture(sampler2D(depth_lod[max_level-1], s_sampler), vec2(pixel)/vec2(image_width, image_height)).x;
     // vec3 L = vec3(1) * pow(depth0, 32.0);
-
-    imageStore(color_buf, pixel, vec4(max(L, vec3(0)), 1.0));
+    vec3 prevL = imageLoad(color_buf, pixel).xyz;
+    float alpha = 0.01;
+    L = alpha * L + (1.0 - alpha) * prevL;
+    L = min(L, vec3(3));
+    L = max(L, vec3(0));
+    imageStore(color_buf, pixel, vec4(L, 1.0));
 }
