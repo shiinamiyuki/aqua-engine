@@ -237,7 +237,7 @@ impl ComputePass for DepthQuadTree {
                 0,
                 bytemuck::cast_slice(&[size.0, size.1, self.width, self.height, level]),
             );
-            compute_pass.dispatch(self.width / 2 / 16, self.height / 2 / 16, 1);
+            compute_pass.dispatch(self.width / 16, self.height / 16, 1);
         }
     }
 }
@@ -316,7 +316,7 @@ impl SSGIPass {
             ],
             label: Some("ssgi.bindgroup.layout"),
         });
-        let zquad_level = 4;
+        let zquad_level = 5;
 
         let camera_uniform = Buffer::<UniformViewProjection>::new_uniform_buffer(
             &ctx.device_ctx,
@@ -355,7 +355,7 @@ impl SSGIPass {
                     ],
                     push_constant_ranges: &[wgpu::PushConstantRange {
                         stages: wgpu::ShaderStage::COMPUTE,
-                        range: 0..(4 * 4 * 3 + 12),
+                        range: 0..(4 * 4 * 3 + 16),
                     }],
                 });
         let pipeline =

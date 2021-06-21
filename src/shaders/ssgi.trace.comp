@@ -39,6 +39,7 @@ layout( push_constant ) uniform PushConstants {
   int image_height;
   vec3 view_dir;
   vec3 eye_pos;
+  int _pad0;
   int lod_width;
   int lod_height;
   int max_level;
@@ -243,6 +244,7 @@ float get_depth(ivec2 pixel, int level){
     if(level == 0)
         return imageLoad(t_depth, pixel).x;
     vec2 tc = vec2(pixel) / vec2(lod_width, lod_height);
+    // tc.y = 1.0 - tc.y;
     return texture(sampler2D(depth_lod[level-1], s_sampler), tc).x;
 }
 bool test_hit(vec3 p, int level){
@@ -276,7 +278,20 @@ bool trace(const in SSTraceRecord record, inout HitRecord hit, inout vec3 debug)
     while(t < ray.tmax){
         float march_step = march_step_base * (1 << level);
         float next_t = t + march_step;
+        
         vec3 p = ray.o + ray.d * next_t;
+        ivec2 pixel = ivec2(p.xy);
+        bool oob = false;
+        if(any(greaterThanEqual(pixel, ivec2(image_width, image_height))))
+            oob = true;
+        if(any(lessThan(pixel, ivec2(0))))
+            oob = true;
+        if(next_t > ray.tmax || oob){
+            if(level == 0)
+                break;
+            level--;
+            continue;
+        }
         if(test_hit(p, level)) {
             if(level == 0){
                 hit.t = next_t;
@@ -288,8 +303,6 @@ bool trace(const in SSTraceRecord record, inout HitRecord hit, inout vec3 debug)
         }else{
             t = next_t;
         }
-        // t += march_step;
-        // prev_pixel = pixel;
         if(level == 0){
             accum_level0_steps++;
         }else{
@@ -315,7 +328,7 @@ bool trace(const in SSTraceRecord record, inout HitRecord hit, inout vec3 debug)
     float pixel_dist = length(ray.d.xy);
     // float march_step_ss = 2.0 / max(image_width, image_height);// / 4.0;// * pixel_dist / 1.0;//1.0 / pixel_dist;
     // float march_step = march_step_ss / length(ray.d.xy) * length(ray.d);
-    float march_step = 1.01;
+    float march_step = 2.01;
     vec3 dir = normalize(ray.d);
     float t = 1.001;
     ivec2 prev_pixel = ivec2(ray.o.xy);
@@ -454,7 +467,7 @@ vec3 ssr(ivec2 pixel){
 }
 void main(){
     ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
-    ivec2 image_size = imageSize(color_buf);
+    // ivec2 image_size = imageSize(color_buf);
     if(any(greaterThanEqual(pixel, ivec2(image_width, image_height))))
         return;
     pixel_idx = pixel.x + pixel.y * image_width;
@@ -466,6 +479,10 @@ void main(){
         L += ssgi(pixel) / spp;
     }
     seeds[pixel_idx] = seed;
+
+    // float depth0 = get_depth(pixel, 3);
+    // // float depth1 = texture(sampler2D(depth_lod[max_level-1], s_sampler), vec2(pixel)/vec2(image_width, image_height)).x;
+    // vec3 L = vec3(1) * pow(depth0, 32.0);
 
     imageStore(color_buf, pixel, vec4(max(L, vec3(0)), 1.0));
 }
