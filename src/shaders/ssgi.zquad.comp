@@ -1,7 +1,7 @@
 #version 450
 layout(local_size_x = 16, local_size_y = 16) in;
-// layout(set=0, binding=0, r32f) readonly uniform image2D original;
-// layout(set=0, binding=1, r32f) writeonly image2D output;
+layout(set=0, binding=0, r32f) readonly uniform image2D original;
+layout(set=0, binding=1, r32f) writeonly uniform image2D min_z;
 
 layout( push_constant ) uniform PushConstants {
   int image_width;
@@ -11,5 +11,17 @@ layout( push_constant ) uniform PushConstants {
 };
 
 void main(){
+  ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+  int width_this_level = width >> level;
+  if(any(greaterThanEqual(pixel, ivec2(width_this_level))))
+      return;
+  ivec2 offset = ivec2(0,1);
+  float d00 = imageLoad(original, 2 * pixel + offset.xx).x;
+  float d01 = imageLoad(original, 2 * pixel + offset.xy).x;
+  float d10 = imageLoad(original, 2 * pixel + offset.yx).x;
+  float d11 = imageLoad(original, 2 * pixel + offset.yy).x;
 
+  float d = min(min(d00, d01), min(d10, d11));
+  imageStore(min_z, pixel, vec4(d));
+  
 }

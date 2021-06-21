@@ -15,8 +15,8 @@ use super::{GBuffer, GBufferPass, GBufferPassInput};
 struct DepthQuadTree {
     level: u32,
     textures: Vec<Texture>,
-    pipeline: wgpu::ComputePipeline,
-    bind_group_layout: wgpu::BindGroupLayout,
+    pipeline: [wgpu::ComputePipeline; 2],
+    bind_group_layout: [wgpu::BindGroupLayout; 2],
     width: u32,
 }
 impl DepthQuadTree {
@@ -34,7 +34,12 @@ impl DepthQuadTree {
         let textures = (0..level)
             .map(|lev| {
                 let size = size / (2u32.pow(lev));
-                Texture::create_depth_texture_with_size(device, &Size(size, size), "depth quad")
+                Texture::create_color_attachment(
+                    device,
+                    &Size(size, size),
+                    wgpu::TextureFormat::R32Float,
+                    "depth quad",
+                )
             })
             .collect();
         let cs = compile_shader_file(
@@ -43,14 +48,39 @@ impl DepthQuadTree {
             &device,
         )
         .unwrap();
-        let zquad_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        let zquad_layout0 = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStage::COMPUTE,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Depth,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStage::COMPUTE,
+                    ty: wgpu::BindingType::StorageTexture {
+                        access: wgpu::StorageTextureAccess::WriteOnly,
+                        format: wgpu::TextureFormat::R32Float,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                    },
+                    count: None,
+                },
+            ],
+            label: None,
+        });
+        let zquad_layout1 = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[
                 wgpu::BindGroupLayoutEntry {
                     binding: 0,
                     visibility: wgpu::ShaderStage::COMPUTE,
                     ty: wgpu::BindingType::StorageTexture {
                         access: wgpu::StorageTextureAccess::ReadOnly,
-                        format: Texture::DEPTH_FORMAT,
+                        format: wgpu::TextureFormat::R32Float,
                         view_dimension: wgpu::TextureViewDimension::D2,
                     },
                     count: None,
@@ -59,8 +89,8 @@ impl DepthQuadTree {
                     binding: 1,
                     visibility: wgpu::ShaderStage::COMPUTE,
                     ty: wgpu::BindingType::StorageTexture {
-                        access: wgpu::StorageTextureAccess::ReadWrite,
-                        format: Texture::DEPTH_FORMAT,
+                        access: wgpu::StorageTextureAccess::WriteOnly,
+                        format: wgpu::TextureFormat::R32Float,
                         view_dimension: wgpu::TextureViewDimension::D2,
                     },
                     count: None,
@@ -68,18 +98,19 @@ impl DepthQuadTree {
             ],
             label: None,
         });
-        let pipeline_layout =
-            ctx.device_ctx
-                .device
-                .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                    label: Some("ssgi.pipeline.layout"),
-                    bind_group_layouts: &[&zquad_layout],
-                    push_constant_ranges: &[wgpu::PushConstantRange {
-                        stages: wgpu::ShaderStage::COMPUTE,
-                        range: 0..16, // (image_size, width, level)
-                    }],
-                });
-        let pipeline =
+        let pipeline0 = {
+            let pipeline_layout =
+                ctx.device_ctx
+                    .device
+                    .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                        label: Some("ssgi.pipeline.layout"),
+                        bind_group_layouts: &[&zquad_layout0],
+                        push_constant_ranges: &[wgpu::PushConstantRange {
+                            stages: wgpu::ShaderStage::COMPUTE,
+                            range: 0..16, // (image_size, width, level)
+                        }],
+                    });
+
             ctx.device_ctx
                 .device
                 .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
@@ -87,12 +118,35 @@ impl DepthQuadTree {
                     layout: Some(&pipeline_layout),
                     module: &cs,
                     entry_point: "main",
-                });
+                })
+        };
+        let pipeline1 = {
+            let pipeline_layout =
+                ctx.device_ctx
+                    .device
+                    .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                        label: Some("ssgi.pipeline.layout"),
+                        bind_group_layouts: &[&zquad_layout1],
+                        push_constant_ranges: &[wgpu::PushConstantRange {
+                            stages: wgpu::ShaderStage::COMPUTE,
+                            range: 0..16, // (image_size, width, level)
+                        }],
+                    });
+
+            ctx.device_ctx
+                .device
+                .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                    label: Some("ssgi.zquad.pipeline"),
+                    layout: Some(&pipeline_layout),
+                    module: &cs,
+                    entry_point: "main",
+                })
+        };
         Self {
             level,
             textures,
-            pipeline,
-            bind_group_layout: zquad_layout,
+            pipeline: [pipeline0, pipeline1],
+            bind_group_layout: [zquad_layout0, zquad_layout1],
             width: size,
         }
     }
@@ -108,8 +162,13 @@ impl ComputePass for DepthQuadTree {
         encoder: &mut wgpu::CommandEncoder,
     ) {
         for level in 0..self.level {
+            let bind_group_layout = if level == 0 {
+                &self.bind_group_layout[0]
+            } else {
+                &self.bind_group_layout[1]
+            };
             let bind_group = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: &self.bind_group_layout,
+                layout: bind_group_layout,
                 label: None,
                 entries: &[
                     wgpu::BindGroupEntry {
@@ -133,7 +192,12 @@ impl ComputePass for DepthQuadTree {
             let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                 label: Some("zquad.pass"),
             });
-
+            let pipeline = if level == 0 {
+                &self.pipeline[0]
+            } else {
+                &self.pipeline[1]
+            };
+            compute_pass.set_pipeline(pipeline);
             compute_pass.set_bind_group(0, &bind_group, &[]);
             compute_pass.set_push_constants(
                 0,
@@ -316,12 +380,12 @@ impl RenderPass for SSGIPass {
         input: &Self::Input,
         encoder: &mut wgpu::CommandEncoder,
     ) {
-        // self.depth_quad_tree.record_command(
-        //     Size(ctx.size.width, ctx.size.height),
-        //     &mut ctx.device_ctx,
-        //     &input.gbuffer,
-        //     encoder,
-        // );
+        self.depth_quad_tree.record_command(
+            Size(ctx.size.width, ctx.size.height),
+            &mut ctx.device_ctx,
+            &input.gbuffer,
+            encoder,
+        );
         self.light.upload(
             &ctx.device_ctx,
             &[PointLightData::new(
