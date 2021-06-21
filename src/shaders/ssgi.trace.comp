@@ -17,7 +17,8 @@ layout(set=0, binding=4) buffer Seeds{
     uint seeds[];
 };
 
-layout(set=1, binding=0) uniform texture2D t_depth;
+// layout(set=1, binding=0) uniform texture2D t_depth;
+layout(set=1, binding=0, r32f) readonly uniform image2D t_depth;
 layout(set=1, binding=1,rgba32f)  readonly uniform image2D t_normal;
 layout(set=1, binding=2,rgba32f)  readonly uniform image2D t_world_pos;
 
@@ -41,7 +42,7 @@ uint seed;
 
 const float PI = 3.1415926535384;
 float rand() {
-    seed = (seed * 1103515245) + 12345;
+    seed = (seed * uint(1103515245)) + uint(12345);
     return float(seed) / float(uint(0xFFFFFFFF));
 }
 
@@ -183,7 +184,7 @@ vec3 direct_lighting(const BSDF bsdf, ivec2 pixel, const vec3 wo) {
     bool in_shadow = length(light.position - offset_x) * 0.95 >= shadow_depth;
     vec3 L = vec3(0);
     vec3 f = evaluate_bsdf(bsdf, wo, wi);
-    L += f * max(0.0,dot(normal, wi)) / dist_sqr;
+    L += f * max(0.0, dot(normal, wi)) / dist_sqr;
     return L;
 }
 
@@ -191,11 +192,22 @@ vec3 project_point(mat4 m, vec3 p){
     vec4 h = m * vec4(p, 1.0);
     return h.xyz / h.w;
 }
+// vec3 ndc_to_pixel(vec3 p){
+//     p.y = -p.y;
+//     p.xy = ((p.xy + 1.0) / 2.0  * vec2(image_width, image_height));
+//     return p;
+// }
 ScreenSpaceRay create_ss_ray(const Ray ray, float tmax){
 
     vec3 p0 = project_point(VP.view, ray.o);
-    vec3 d = normalize(mat3(VP.view) * ray.d) * tmax;
-
+    vec3 d = normalize(mat3(VP.view) * ray.d);// * tmax;
+    // vec3 d = normalize(mat3(VP.view) * ray.d);//assume det(VP.view) = 1
+    // {
+    //     vec3 p1 = project_point(VP.view, ray.o + ray.d * tmax);
+    //     d = p1 - p0;
+    //     tmax = length(d);
+    //     d = normalize(d);
+    // }
     if(d.z > 0.0){
         tmax = min(tmax, abs(p0.z / d.z) * 0.999);   
     }
@@ -224,22 +236,30 @@ bool trace(const in SSTraceRecord record, inout HitRecord hit, inout vec3 debug)
     }
     debug = vec3(normalize(vec2(ray.d.xy)), 0.0);
     float pixel_dist = length(ray.d.xy);
-    float march_step = 1.0 / max(image_width, image_height);//1.0 / pixel_dist;
-    float t = march_step * 2.0;
-    while(t < pixel_dist){
+    float march_step_ss = 2.0 / max(image_width, image_height);// / 4.0;// * pixel_dist / 1.0;//1.0 / pixel_dist;
+    float march_step = march_step_ss / length(ray.d.xy) * length(ray.d);
+    float t = 0.0;
+    ivec2 prev_pixel = ndc_to_int(ray.o.xy);
+    while(t < 1.0){
         vec3 p = ray.o + ray.d * t;
         ivec2 pixel = ndc_to_int(p.xy);
+        if(all(equal(prev_pixel, pixel))){
+            t += march_step;
+            continue;
+        }
         if(any(greaterThanEqual(pixel, ivec2(image_width, image_height))))
             return false;
         if(any(lessThan(pixel, ivec2(0))))
             return false;
-        float depth = texture(sampler2D(t_depth, s_sampler),ndc_to_tc(p.xy)).x;
+        // float depth = texture(sampler2D(t_depth, s_sampler),ndc_to_tc(p.xy)).x;
+        float depth = imageLoad(t_depth, pixel).x;
         if(p.z > depth){
             hit.t = t;
             hit.pixel = p.xy;
             return true;
         }
         t += march_step;
+        prev_pixel = pixel;
     }
     return false;
 } 
@@ -251,24 +271,26 @@ vec2 sample_disk(){
 }
 vec3 sample_hemisphere(){
     vec2 uv = sample_disk();
-    float r = length(uv);
-    float h = 1.0 - r;
+    float r = dot(uv, uv);
+    float h = sqrt(1.0 - r);
     return vec3(uv.x, h, uv.y);
 }
 vec3 ssgi(ivec2 pixel){
     vec3 L = vec3(0);
     vec3 beta = vec3(1);
     vec3 debug = vec3(0);
-    float gi_boost = 0.0;
+    float gi_boost = 1.0;
     vec3 wo = -normalize(imageLoad(t_world_pos, pixel).xyz - eye_pos);
     for(int bounce =0; bounce <= 1; bounce++){
         BSDF bsdf = get_bsdf(pixel);
         float boost = bounce == 0 ? 1.0 : (1.0 + gi_boost);
-        // if(bounce > 0)
+        if(bounce > 0)
             L += beta * boost * direct_lighting(bsdf, pixel, wo);
         
         BSDFSample bsdf_sample = sample_bsdf(bsdf, wo);
         vec3 w = bsdf_sample.wi;
+        // return w;
+        // return 0.5 * imageLoad(t_normal, pixel).xyz + 0.5;
         Ray ray = Ray(imageLoad(t_world_pos, pixel).xyz, w);
         SSTraceRecord record;
         record.ray = ray;
@@ -276,6 +298,9 @@ vec3 ssgi(ivec2 pixel){
         record.tmax = 100.0;
         beta *= bsdf_sample.f / bsdf_sample.pdf * abs(dot(bsdf.n, w));
         HitRecord hit;
+        if(any(lessThan(beta, vec3(0.0)))){
+            break;
+        }
         if(trace(record, hit, debug)){
             pixel = ndc_to_int(hit.pixel);
         }else{
@@ -288,14 +313,19 @@ vec3 ssgi(ivec2 pixel){
 vec3 ssao(ivec2 pixel){
     vec3 normal = imageLoad(t_normal, pixel).xyz;
     vec3 w = sample_hemisphere();
-    Frame frame = frame_from1(normal);
-    w = to_world(frame, w);
+    // vec3 w = normalize()
+    // vec3 w = normalize(vec3(-0.4,0.0,0.4));
+    // Frame frame = frame_from1(normal);
+    // w = to_world(frame, w);
+    // return w.zzz;
+    // return w;
+    return vec3(1.0 / (w.y / PI) - 2.0 * PI);
     Ray ray = Ray(imageLoad(t_world_pos, pixel).xyz, w);
     SSTraceRecord record;
     record.ray = ray;
     record.pixel = pixel;
         // record.depth = 
-    record.tmax = 3.0;
+    record.tmax = 100.0;
     vec3 debug;
     HitRecord hit;
     if(trace(record, hit, debug)){
@@ -305,32 +335,36 @@ vec3 ssao(ivec2 pixel){
         return vec3(1);
     }
 }
-// vec3 ssr(ivec2 pixel){
-//     vec3 normal = imageLoad(t_normal, pixel).xyz;
-//     vec3 x = imageLoad(t_world_pos, pixel).xyz;
-//     vec3 L = vec3(0);
-//     if(x.y < 0.1 && normal.y > 0.99){
-//         vec3 wo = normalize(x - eye_pos);
-//         vec3 wi = reflect(wo, normal);
-//         Ray ray = Ray(x, wi);
-//         SSTraceRecord record;
-//         record.ray = ray;
-//         record.pixel = pixel;
-//             // record.depth = 
-//         record.tmax = 100.0;
-//         vec3 debug;
-//         HitRecord hit;
-//          if(trace(record, hit, debug)){
-//             pixel = ndc_to_int(hit.pixel);
-//             return direct_lighting(pixel);
-//         }else{
-//             return vec3(0);
-//         }
-//     }else{
-//         L =  direct_lighting(pixel);
-//     }
-//     return L;
-// }
+vec3 ssr(ivec2 pixel){
+    vec3 normal = imageLoad(t_normal, pixel).xyz;
+    vec3 x = imageLoad(t_world_pos, pixel).xyz;
+    vec3 L = vec3(0);
+    vec3 wo = -normalize(imageLoad(t_world_pos, pixel).xyz - eye_pos);
+    if(true){
+        vec3 wo = normalize(x - eye_pos);
+        vec3 wi = reflect(wo, normal);
+        Ray ray = Ray(x, wi);
+        SSTraceRecord record;
+        record.ray = ray;
+        record.pixel = pixel;
+            // record.depth = 
+        record.tmax = 100.0;
+        vec3 debug;
+        HitRecord hit;
+        
+         if(trace(record, hit, debug)){
+            pixel = ndc_to_int(hit.pixel);
+            BSDF bsdf = get_bsdf(pixel);
+            return direct_lighting(bsdf,pixel,-wi);
+        }else{
+            return vec3(0);
+        }
+    }else{
+        BSDF bsdf = get_bsdf(pixel);
+        L =  direct_lighting(bsdf, pixel, wo);
+    }
+    return L;
+}
 void main(){
     ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
     ivec2 image_size = imageSize(color_buf);
@@ -344,7 +378,7 @@ void main(){
     for(int i=0;i<spp;i++){
         L += ssgi(pixel) / spp;
     }
-    // seeds[pixel_idx] = seed;
+    seeds[pixel_idx] = seed;
 
-    imageStore(color_buf, pixel, vec4(L, 1.0));
+    imageStore(color_buf, pixel, vec4(max(L, vec3(0)), 1.0));
 }

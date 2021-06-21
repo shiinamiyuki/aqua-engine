@@ -1,13 +1,14 @@
 use std::sync::Arc;
 
+use akari::Frame;
 use arukas::{
     geometry::load_model,
     glm,
     render::{
         fovx_to_fovy,
         passes::{self, DeferredShadingInput},
-        FrameContext, GPUScene, Mesh, OribitalCamera, Perspective, PointLight, RenderContext,
-        RenderPass,
+        Camera, FrameContext, GPUScene, Mesh, OribitalCamera, Perspective, PointLight,
+        RenderContext, RenderPass,
     },
 };
 
@@ -72,7 +73,7 @@ impl App {
         };
         let camera = OribitalCamera {
             perspective,
-            center: glm::vec3(-0.2, 1.5, 2.0),
+            center: glm::vec3(-0.2, 1.5, 8.0),
             radius: 1.0,
             phi: 0.0,
             theta: glm::pi::<f32>() * 0.5,
@@ -99,6 +100,31 @@ impl App {
     }
     fn input(&mut self, event: &WindowEvent) -> bool {
         match event {
+            WindowEvent::KeyboardInput { input, .. } => {
+                if let Some(key) = input.virtual_keycode {
+                    let dir = match key {
+                        VirtualKeyCode::W => glm::vec3(0.0, 0.0, -1.0),
+                        VirtualKeyCode::A => glm::vec3(-1.0, 0.0, 0.0),
+                        VirtualKeyCode::S => glm::vec3(0.0, 0.0, 1.0),
+                        VirtualKeyCode::D => glm::vec3(1.0, 0.0, 0.0),
+                        _ => {
+                            return false;
+                        }
+                    };
+                    let cam_dir = self.camera.dir();
+                    let frame = {
+                        let B = -cam_dir;
+                        let T = glm::normalize(&glm::cross(&glm::vec3(0.0, 1.0, 0.0), &B));
+                        let N = glm::normalize(&glm::cross(&T, &B));
+                        Frame { T, B, N }
+                    };
+                    let dir = frame.to_world(&dir);
+                    self.camera.center += 0.1 * dir;
+                    true
+                } else {
+                    false
+                }
+            }
             WindowEvent::MouseInput {
                 device_id,
                 state: ElementState::Released,
@@ -238,6 +264,8 @@ fn main() {
                     }
                     _ => {}
                 }
+            } else {
+                window.request_redraw();
             }
         }
         _ => {}

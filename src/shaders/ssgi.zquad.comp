@@ -1,0 +1,15 @@
+#version 450
+layout(local_size_x = 16, local_size_y = 16) in;
+// layout(set=0, binding=0, r32f) readonly uniform image2D original;
+// layout(set=0, binding=1, r32f) writeonly image2D output;
+
+layout( push_constant ) uniform PushConstants {
+  int image_width;
+  int image_height;
+  int width;
+  int level;
+};
+
+void main(){
+
+}

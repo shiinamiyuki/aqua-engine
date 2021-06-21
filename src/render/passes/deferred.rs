@@ -22,12 +22,10 @@ pub struct ShadowMapPass {
 impl ShadowMapPass {
     pub fn new(ctx: &RenderContext) -> Self {
         let device = &ctx.device_ctx.device;
-        let mut compiler = shaderc::Compiler::new().unwrap();
         let cs = compile_shader_file(
             Path::new("src/shaders/shadow_map.comp"),
             shaderc::ShaderKind::Compute,
             &ctx.device_ctx.device,
-            &mut compiler,
         )
         .unwrap();
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -205,19 +203,16 @@ pub struct RenderFrameBufferPass {
 impl RenderFrameBufferPass {
     pub fn new(ctx: &RenderContext) -> Self {
         let device = &ctx.device_ctx.device;
-        let mut compiler = shaderc::Compiler::new().unwrap();
         let fs = compile_shader_file(
             Path::new("src/shaders/deferred.frag"),
             shaderc::ShaderKind::Fragment,
             &ctx.device_ctx.device,
-            &mut compiler,
         )
         .unwrap();
         let vs = compile_shader_file(
             Path::new("src/shaders/deferred.vert"),
             shaderc::ShaderKind::Vertex,
             &ctx.device_ctx.device,
-            &mut compiler,
         )
         .unwrap();
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor::default());

@@ -26,19 +26,16 @@ pub struct ShadowPass {
 impl ShadowPass {
     pub fn new(ctx: &RenderContext, cubemap_res: u32) -> Self {
         let device = &ctx.device_ctx.device;
-        let mut compiler = shaderc::Compiler::new().unwrap();
         let fs = compile_shader_file(
             Path::new("src/shaders/shadow.frag"),
             shaderc::ShaderKind::Fragment,
             &ctx.device_ctx.device,
-            &mut compiler,
         )
         .unwrap();
         let vs = compile_shader_file(
             Path::new("src/shaders/shadow.vert"),
             shaderc::ShaderKind::Vertex,
             &ctx.device_ctx.device,
-            &mut compiler,
         )
         .unwrap();
         let light_vp = Buffer::new_uniform_buffer(
