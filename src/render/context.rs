@@ -55,12 +55,13 @@ impl RenderContext {
                 &wgpu::DeviceDescriptor {
                     features: wgpu::Features::empty()
                         // | wgpu::Features::UNSIZED_BINDING_ARRAY
+                        | wgpu::Features::SAMPLED_TEXTURE_BINDING_ARRAY
                         | wgpu::Features::SAMPLED_TEXTURE_ARRAY_NON_UNIFORM_INDEXING
                         | wgpu::Features::SAMPLED_TEXTURE_ARRAY_DYNAMIC_INDEXING
                         | wgpu::Features::PUSH_CONSTANTS
                         | wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES,
                     limits: wgpu::Limits {
-                        max_push_constant_size: 64,
+                        max_push_constant_size: 128,
                         max_storage_buffer_binding_size: 1920 * 1080 * 16,
                         max_uniform_buffer_binding_size: 1920 * 1080 * 16,
                         ..wgpu::Limits::default()

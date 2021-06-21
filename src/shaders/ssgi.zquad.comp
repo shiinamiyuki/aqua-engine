@@ -7,13 +7,15 @@ layout( push_constant ) uniform PushConstants {
   int image_width;
   int image_height;
   int width;
+  int height;
   int level;
 };
 
 void main(){
   ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
   int width_this_level = width >> level;
-  if(any(greaterThanEqual(pixel, ivec2(width_this_level))))
+  int height_this_level = height >> level;
+  if(any(greaterThanEqual(pixel, ivec2(width_this_level, height_this_level))))
       return;
   ivec2 offset = ivec2(0,1);
   float d00 = imageLoad(original, 2 * pixel + offset.xx).x;

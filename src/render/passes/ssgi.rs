@@ -1,13 +1,16 @@
-use std::{path::Path, sync::Arc};
+use std::{num::NonZeroU32, path::Path, sync::Arc};
 
 use nalgebra_glm::Vec3;
 use rand::Rng;
 use wgpu::util::DeviceExt;
 
-use crate::render::{
-    compile_shader_file, Buffer, BufferData, Camera, ComputePass, CubeMap, DeviceContext,
-    FrameContext, GPUScene, PointLight, PointLightData, RenderContext, RenderPass, Scene, Size,
-    Texture, UniformViewProjection, Vertex, ViewProjection,
+use crate::{
+    render::{
+        compile_shader_file, Buffer, BufferData, Camera, ComputePass, CubeMap, DeviceContext,
+        FrameContext, GPUScene, PointLight, PointLightData, RenderContext, RenderPass, Scene, Size,
+        Texture, UniformViewProjection, Vertex, ViewProjection,
+    },
+    util,
 };
 
 use super::{GBuffer, GBufferPass, GBufferPassInput};
@@ -16,27 +19,25 @@ struct DepthQuadTree {
     level: u32,
     textures: Vec<Texture>,
     pipeline: [wgpu::ComputePipeline; 2],
-    bind_group_layout: [wgpu::BindGroupLayout; 2],
+    bind_group_layout: [wgpu::BindGroupLayout; 2], // for building
+    zquad_bind_group_layout: wgpu::BindGroupLayout, // for querying
+    zquad_bind_group: wgpu::BindGroup,
     width: u32,
+    height: u32,
 }
 impl DepthQuadTree {
     fn new(ctx: &RenderContext, level: u32) -> Self {
         let size = ctx.size;
-        let size = size.width.max(size.height);
-        let size = {
-            let mut i = 2;
-            while i < size {
-                i *= 2;
-            }
-            i / 2
-        };
+        let width = util::round_next_pow2(size.width) / 2;
+        let height = util::round_next_pow2(size.height) / 2;
         let device = &ctx.device_ctx.device;
-        let textures = (0..level)
+        let textures: Vec<Texture> = (0..level)
             .map(|lev| {
-                let size = size / (2u32.pow(lev));
+                let width = width >> lev;
+                let height = height >> lev;
                 Texture::create_color_attachment(
                     device,
-                    &Size(size, size),
+                    &Size(width, height),
                     wgpu::TextureFormat::R32Float,
                     "depth quad",
                 )
@@ -107,7 +108,7 @@ impl DepthQuadTree {
                         bind_group_layouts: &[&zquad_layout0],
                         push_constant_ranges: &[wgpu::PushConstantRange {
                             stages: wgpu::ShaderStage::COMPUTE,
-                            range: 0..16, // (image_size, width, level)
+                            range: 0..20, // (image_size, width, height, level)
                         }],
                     });
 
@@ -129,7 +130,7 @@ impl DepthQuadTree {
                         bind_group_layouts: &[&zquad_layout1],
                         push_constant_ranges: &[wgpu::PushConstantRange {
                             stages: wgpu::ShaderStage::COMPUTE,
-                            range: 0..16, // (image_size, width, level)
+                            range: 0..20,
                         }],
                     });
 
@@ -142,12 +143,45 @@ impl DepthQuadTree {
                     entry_point: "main",
                 })
         };
+        let zquad_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("ssgi.trace.zquad.bindgroup.layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStage::COMPUTE,
+                    // ty: wgpu::BindingType::StorageTexture {
+                    //     access: wgpu::StorageTextureAccess::ReadOnly,
+                    //     format: wgpu::TextureFormat::R32Float,
+                    //     view_dimension: wgpu::TextureViewDimension::D2Array,
+                    // },
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                        view_dimension: wgpu::TextureViewDimension::D2Array,
+                        multisampled: false,
+                    },
+                    count: NonZeroU32::new(level),
+                }],
+            });
+        let zquad_views: Vec<_> = (0..level)
+            .map(|lev| -> &wgpu::TextureView { &textures[lev as usize].view })
+            .collect();
+        let zquad_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &&zquad_bind_group_layout,
+            label: Some("ssgi.trace.zquad.bindgroup"),
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureViewArray(&zquad_views[..]),
+            }],
+        });
         Self {
             level,
             textures,
             pipeline: [pipeline0, pipeline1],
             bind_group_layout: [zquad_layout0, zquad_layout1],
-            width: size,
+            zquad_bind_group_layout,
+            zquad_bind_group,
+            width,
+            height,
         }
     }
 }
@@ -201,8 +235,9 @@ impl ComputePass for DepthQuadTree {
             compute_pass.set_bind_group(0, &bind_group, &[]);
             compute_pass.set_push_constants(
                 0,
-                bytemuck::cast_slice(&[size.0, size.1, self.width, level]),
-            )
+                bytemuck::cast_slice(&[size.0, size.1, self.width, self.height, level]),
+            );
+            compute_pass.dispatch(self.width / 2 / 16, self.height / 2 / 16, 1);
         }
     }
 }
@@ -281,6 +316,8 @@ impl SSGIPass {
             ],
             label: Some("ssgi.bindgroup.layout"),
         });
+        let zquad_level = 4;
+
         let camera_uniform = Buffer::<UniformViewProjection>::new_uniform_buffer(
             &ctx.device_ctx,
             &[UniformViewProjection::default()],
@@ -304,6 +341,7 @@ impl SSGIPass {
             label: Some("ssgi.bindgroup.2"),
             layout: &camera_bind_group_layout,
         });
+        let depth_quad_tree =  DepthQuadTree::new(ctx, zquad_level);
         let pipeline_layout =
             ctx.device_ctx
                 .device
@@ -313,10 +351,11 @@ impl SSGIPass {
                         &bind_group_layout,
                         &GBuffer::bind_group_layout(&ctx.device_ctx),
                         &camera_bind_group_layout,
+                        &depth_quad_tree.zquad_bind_group_layout
                     ],
                     push_constant_ranges: &[wgpu::PushConstantRange {
                         stages: wgpu::ShaderStage::COMPUTE,
-                        range: 0..(4 * 4 * 3),
+                        range: 0..(4 * 4 * 3 + 12),
                     }],
                 });
         let pipeline =
@@ -356,7 +395,7 @@ impl SSGIPass {
             seeds,
             camera_bindgroup,
             camera_uniform,
-            depth_quad_tree: DepthQuadTree::new(ctx, 4),
+            depth_quad_tree,
         }
     }
 }
@@ -422,6 +461,14 @@ impl RenderPass for SSGIPass {
                 layout: &self.bind_group_layout,
             });
         let bindgroup1 = input.gbuffer.create_bind_group(&ctx.device_ctx);
+        // // let bindgroup3
+        // let bindgroup3 = ctx.device_ctx.device.create_bind_group(&wgpu::BindGroupDescriptor{
+        //     label:Some("ssgi.zquad.trace.bindgroup"),
+        //     layout:&self.zquad_bind_group_layout,
+        //     entries:&[
+
+        //     ]
+        // });
         self.camera_uniform
             .upload(&ctx.device_ctx, &[UniformViewProjection::new(&input.vp)]);
         let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
@@ -442,9 +489,14 @@ impl RenderPass for SSGIPass {
             4 * 4 + 4 * 4,
             bytemuck::cast_slice(input.eye_pos.as_slice()),
         );
+        compute_pass.set_push_constants(
+            4 * 4 * 3,
+            bytemuck::cast_slice(&[self.depth_quad_tree.width * 2, self.depth_quad_tree.height * 2, self.depth_quad_tree.level]),
+        );
         compute_pass.set_bind_group(0, &bindgroup0, &[]);
         compute_pass.set_bind_group(1, &bindgroup1, &[]);
         compute_pass.set_bind_group(2, &self.camera_bindgroup, &[]);
+        compute_pass.set_bind_group(3, &self.depth_quad_tree.zquad_bind_group, &[]);
         compute_pass.dispatch(
             (input.color.extent.width + 15) / 16,
             (input.color.extent.height + 15) / 16,
