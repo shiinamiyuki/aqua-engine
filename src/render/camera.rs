@@ -70,12 +70,12 @@ pub fn opengl_to_wgpu_matrix()-> glm::Mat4 {
 //
 //     }
 // }
-pub trait Camera {
-    fn build_view_projection_matrix(&self) -> ViewProjection;
-    fn pos(&self) -> Vec3;
-    fn dir(&self) -> Vec3;
-}
-
+// pub trait Camera {
+//     fn build_view_projection_matrix(&self) -> ViewProjection;
+//     fn pos(&self) -> Vec3;
+//     fn dir(&self) -> Vec3;
+// }
+#[derive(Clone)]
 pub struct OribitalCamera {
     pub perspective: Perspective,
     pub center: glm::Vec3,
@@ -83,7 +83,7 @@ pub struct OribitalCamera {
     pub phi: f32,
     pub theta: f32,
 }
-
+#[derive(Clone)]
 pub struct LookAtCamera {
     pub perspective: Perspective,
     pub eye: glm::Vec3,
@@ -91,8 +91,8 @@ pub struct LookAtCamera {
     pub up: glm::Vec3,
 }
 
-impl Camera for LookAtCamera {
-    fn build_view_projection_matrix(&self) -> ViewProjection {
+impl LookAtCamera {
+    pub fn build_view_projection_matrix(&self) -> ViewProjection {
         let view = glm::look_at(&self.eye, &self.center, &self.up);
         let proj = glm::perspective(
             self.perspective.aspect,
@@ -102,16 +102,16 @@ impl Camera for LookAtCamera {
         );
         ViewProjection(view, opengl_to_wgpu_matrix() * proj)
     }
-    fn pos(&self) -> Vec3 {
+    pub fn pos(&self) -> Vec3 {
         self.eye
     }
-    fn dir(&self) -> Vec3 {
+    pub fn dir(&self) -> Vec3 {
         glm::normalize(&(self.center - self.eye))
     }
 }
 
-impl Camera for OribitalCamera {
-    fn build_view_projection_matrix(&self) -> ViewProjection {
+impl OribitalCamera {
+    pub fn build_view_projection_matrix(&self) -> ViewProjection {
         let dir = glm::vec3(
             self.phi.sin() * self.theta.sin(),
             self.theta.cos(),
@@ -127,7 +127,7 @@ impl Camera for OribitalCamera {
         );
         ViewProjection(view, opengl_to_wgpu_matrix() * proj)
     }
-    fn pos(&self) -> Vec3 {
+    pub fn pos(&self) -> Vec3 {
         let dir = glm::vec3(
             self.phi.sin() * self.theta.sin(),
             self.theta.cos(),
@@ -135,12 +135,39 @@ impl Camera for OribitalCamera {
         );
         self.center + self.radius * dir
     }
-    fn dir(&self) -> Vec3 {
+    pub fn dir(&self) -> Vec3 {
         let dir = glm::vec3(
             self.phi.sin() * self.theta.sin(),
             self.theta.cos(),
             self.phi.cos() * self.theta.sin(),
         );
         -dir
+    }
+}
+
+#[derive(Clone)]
+pub enum Camera {
+    Orbital(OribitalCamera),
+    LookAt(LookAtCamera),
+}
+
+impl Camera {
+    pub fn build_view_projection_matrix(&self) -> ViewProjection {
+        match &self {
+            Camera::Orbital(orbital) => orbital.build_view_projection_matrix(),
+            Camera::LookAt(look_at) => look_at.build_view_projection_matrix(),
+        }
+    }
+    pub fn pos(&self) -> Vec3 {
+        match &self {
+            Camera::Orbital(orbital) => orbital.pos(),
+            Camera::LookAt(look_at) => look_at.pos(),
+        }
+    }
+    pub fn dir(&self) -> Vec3 {
+        match &self {
+            Camera::Orbital(orbital) => orbital.dir(),
+            Camera::LookAt(look_at) => look_at.dir(),
+        }
     }
 }

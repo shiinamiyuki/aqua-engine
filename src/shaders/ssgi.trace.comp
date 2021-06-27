@@ -73,6 +73,10 @@ vec3 offset_ray(const vec3 p, const vec3 n)
                 abs(p.z) < origin() ? p.z+ float_scale()*n.z : p_i.z);
 }
 
+vec3 offset_along_normal(const vec3 p, const vec3 n, vec3 dir, float k){
+    return p + n * k / dot(dir, n);
+}
+
 struct Ray {
     vec3 o;
     vec3 d;
@@ -178,18 +182,21 @@ BSDFSample sample_bsdf(const BSDF bsdf, vec3 wo){
 
 vec3 direct_lighting(const BSDF bsdf, ivec2 pixel, const vec3 wo) {
     vec3 x = imageLoad(t_world_pos, pixel).xyz;
-    vec3 normal = imageLoad(t_normal, pixel).xyz;
-    vec3 offset_x = offset_ray(x, normal);
-    
     vec3 wi = (light.position - x);
     
     float dist_sqr = dot(wi, wi);
     float dist = sqrt(dist_sqr);
     wi /= dist;
 
+    vec3 normal = imageLoad(t_normal, pixel).xyz;
+    // vec3 offset_x = offset_along_normal(x, normal, wi, 0.01 * (1.0 + dist/(dist + 1.0)));
+    float offset_k = mix(0.0001, 0.02, 0.2 * dist);
+    vec3 offset_x = x + wi * offset_k / dot(wi, normal);
+    
+  
     float shadow_depth = texture(samplerCube(shadow_map, s_sampler), -vec3(-wi.x,wi.yz)).x;
     
-    bool in_shadow = length(light.position - offset_x) * 0.95 >= shadow_depth;
+    bool in_shadow = length(light.position - offset_x) >= shadow_depth;//(shadow_depth * (1.0 + 0.001));
     vec3 L = vec3(0);
     if(!in_shadow){
         vec3 f = evaluate_bsdf(bsdf, wo, wi);
@@ -385,14 +392,16 @@ vec3 ssgi(ivec2 pixel){
     for(int bounce =0; bounce <= 1; bounce++){
         BSDF bsdf = get_bsdf(pixel);
         float boost = bounce == 0 ? 1.0 : (1.0 + gi_boost);
-        // if(bounce > 0)
+        if(bounce > 0)
+            L += beta * boost * min(vec3(3), direct_lighting(bsdf, pixel, wo));
+        else
             L += beta * boost * direct_lighting(bsdf, pixel, wo);
-        
         BSDFSample bsdf_sample = sample_bsdf(bsdf, wo);
         vec3 w = bsdf_sample.wi;
         // return w;
         // return 0.5 * imageLoad(t_normal, pixel).xyz + 0.5;
         Ray ray = Ray(imageLoad(t_world_pos, pixel).xyz, w);
+        ray.o = offset_ray(ray.o, bsdf.frame.N);
         SSTraceRecord record;
         record.ray = ray;
         record.pixel = pixel;
@@ -482,7 +491,7 @@ void main(){
     // // float depth1 = texture(sampler2D(depth_lod[max_level-1], s_sampler), vec2(pixel)/vec2(image_width, image_height)).x;
     // vec3 L = vec3(1) * pow(depth0, 32.0);
     vec3 prevL = imageLoad(color_buf, pixel).xyz;
-    float alpha = 0.01;
+    float alpha = 0.9;
     L = alpha * L + (1.0 - alpha) * prevL;
     L = min(L, vec3(3));
     L = max(L, vec3(0));

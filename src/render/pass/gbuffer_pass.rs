@@ -1,9 +1,14 @@
-use std::sync::Arc;
+use std::{
+    cell::{Cell, RefCell},
+    sync::Arc,
+};
 
 use crate::render::{
-    Buffer, BufferData, Camera, ColorAttachment, DeviceContext, FrameContext, GPUMesh, GPUScene,
-    RenderContext, RenderPass, Size, Texture, UniformViewProjection, Vertex,
+    Buffer, BufferData, Camera, DeviceContext, FrameContext, GPUMesh, GPUScene, RenderContext,
+    Scene, Size, Texture, UniformViewProjection, Vertex,
 };
+
+use super::RenderPass;
 
 #[derive(Clone)]
 pub struct GBuffer {
@@ -81,14 +86,27 @@ pub struct GBufferPass {
     pipeline: wgpu::RenderPipeline,
     camera_uniform: Buffer<UniformViewProjection>,
     bind_group0: wgpu::BindGroup,
+    ctx: Arc<RenderContext>,
 }
 
-pub struct GBufferPassInput {
+pub struct GBufferPassParams {
     pub scene: Arc<GPUScene>,
-    pub gbuffer: GBuffer,
+    pub gbuffer: Arc<GBuffer>,
+    pub camera: Camera,
 }
-impl GBufferPass {
-    pub fn new(ctx: &RenderContext) -> Self {
+pub struct GBufferPassDescriptor {
+    pub ctx: Arc<RenderContext>,
+}
+
+pub struct GBufferPassNode {
+    pub gbuffer: Arc<GBuffer>,
+}
+impl RenderPass for GBufferPass {
+    type Descriptor = GBufferPassDescriptor;
+    type Params = GBufferPassParams;
+    type Node = GBufferPassNode;
+    fn create_pass(desc: &Self::Descriptor) -> Self {
+        let ctx = &desc.ctx;
         let device = &ctx.device_ctx.device;
         let vs_src = std::fs::read_to_string("src/shaders/gbuffer.vert").unwrap();
         let fs_src = std::fs::read_to_string("src/shaders/gbuffer.frag").unwrap();
@@ -194,7 +212,7 @@ impl GBufferPass {
                 cull_mode: Some(wgpu::Face::Back),
                 polygon_mode: wgpu::PolygonMode::Fill,
                 clamp_depth: false,
-                conservative:false,
+                conservative: false,
             },
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: Texture::DEPTH_FORMAT,
@@ -202,7 +220,6 @@ impl GBufferPass {
                 depth_compare: wgpu::CompareFunction::Less,
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
-                
             }),
             multisample: wgpu::MultisampleState {
                 count: 1,
@@ -214,43 +231,55 @@ impl GBufferPass {
             pipeline: render_pipeline,
             camera_uniform,
             bind_group0,
+            ctx: ctx.clone(),
         }
     }
-}
-impl RenderPass for GBufferPass {
-    type Input = GBufferPassInput;
     fn record_command(
         &mut self,
-        ctx: &mut RenderContext,
-        frame_ctx: &mut FrameContext,
-        camera: &dyn Camera,
-        input: &Self::Input,
+        params: &Self::Params,
+        _frame_ctx: &FrameContext,
         encoder: &mut wgpu::CommandEncoder,
-    ) {
+    ) -> GBufferPassNode {
         self.camera_uniform.upload(
-            &ctx.device_ctx,
+            &self.ctx.device_ctx,
             &[UniformViewProjection::new(
-                &camera.build_view_projection_matrix(),
+                &params.camera.build_view_projection_matrix(),
             )],
         );
 
-        let color_attachments = vec![
-            ColorAttachment {
-                view: &input.gbuffer.normal.view,
+        let attachment_descs = [
+            wgpu::RenderPassColorAttachment {
+                view: &params.gbuffer.normal.view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color {
+                        r: 0.0,
+                        g: 0.0,
+                        b: 0.0,
+                        a: 1.0,
+                    }),
+                    store: true,
+                },
             },
-            ColorAttachment {
-                view: &input.gbuffer.world_pos.view,
+            wgpu::RenderPassColorAttachment {
+                view: &params.gbuffer.world_pos.view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color {
+                        r: 0.0,
+                        g: 0.0,
+                        b: 0.0,
+                        a: 1.0,
+                    }),
+                    store: true,
+                },
             },
         ];
-        let attachment_descs: Vec<wgpu::RenderPassColorAttachment> = color_attachments
-            .iter()
-            .map(|color| color.get_descriptor())
-            .collect();
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("Render Pass"),
             color_attachments: &attachment_descs[..],
             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                view: &input.gbuffer.depth.view,
+                view: &params.gbuffer.depth.view,
                 depth_ops: Some(wgpu::Operations {
                     load: wgpu::LoadOp::Clear(1.0),
                     store: true,
@@ -262,10 +291,13 @@ impl RenderPass for GBufferPass {
 
         render_pass.set_bind_group(0, &self.bind_group0, &[]);
 
-        for m in &input.scene.meshes {
+        for m in &params.scene.meshes {
             render_pass.set_vertex_buffer(0, m.vertex_buffer.slice(..));
             render_pass.set_index_buffer(m.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
             render_pass.draw_indexed(0..m.num_indices, 0, 0..1); // 2.
+        }
+        GBufferPassNode {
+            gbuffer: params.gbuffer.clone(),
         }
     }
 }

@@ -4,13 +4,11 @@ pub mod context;
 pub mod light;
 pub mod mesh;
 pub mod texture;
-pub mod render_pass;
-pub mod compute_pass;
+pub mod pass;
 pub mod shader;
+pub mod pipeline;
 // pub mod svo;
 pub mod scene;
-
-pub mod passes;
 
 pub use scene::*;
 pub use shader::*;
@@ -19,9 +17,9 @@ pub use camera::*;
 pub use context::*;
 pub use light::*;
 pub use mesh::*;
-pub use render_pass::*;
 pub use texture::*;
-pub use compute_pass::*;
+pub use pass::*;
+pub use pipeline::*;
 // pub use svo::*;
 
 #[derive(Debug, Clone, Copy, Default, Eq, PartialEq)]

@@ -9,7 +9,7 @@ use crate::render::{
     RenderContext, RenderPass, Size, Texture, UniformViewProjection, Vertex, ViewProjection,
 };
 
-pub struct ShadowPassInput {
+pub struct ShadowPassParams {
     pub scene: Arc<GPUScene>,
     pub light_idx: u32,
     pub cubemap: Arc<CubeMap>,
@@ -20,11 +20,20 @@ pub struct ShadowPass {
     bindgroup: wgpu::BindGroup,
     depth: Texture,
     cubemap_res: u32,
-    
+    ctx: Arc<RenderContext>,
 }
-
-impl ShadowPass {
-    pub fn new(ctx: &RenderContext, cubemap_res: u32) -> Self {
+pub struct ShadowPassDescriptor {
+    pub ctx: Arc<RenderContext>,
+    pub cubemap_res: u32,
+}
+pub struct ShadowPassNode {
+    pub cubemap: Arc<CubeMap>,
+    pub cubemap_res: u32,
+}
+impl RenderPass for ShadowPass {
+    type Descriptor = ShadowPassDescriptor;
+    fn create_pass(desc: &Self::Descriptor) -> Self {
+        let ctx = &desc.ctx;
         let device = &ctx.device_ctx.device;
         let fs = compile_shader_file(
             Path::new("src/shaders/shadow.frag"),
@@ -111,32 +120,30 @@ impl ShadowPass {
                 alpha_to_coverage_enabled: false,
             },
         });
+        let cubemap_res = desc.cubemap_res;
         let depth = Texture::create_depth_texture_with_size(
             device,
             &Size(cubemap_res, cubemap_res),
             "shadow.depth",
         );
-     
+
         Self {
             light_vp,
             pipeline,
             bindgroup,
             depth,
             cubemap_res,
+            ctx: ctx.clone(),
         }
     }
-}
-
-impl RenderPass for ShadowPass {
-    type Input = ShadowPassInput;
+    type Params = ShadowPassParams;
+    type Node = ShadowPassNode;
     fn record_command(
         &mut self,
-        ctx: &mut RenderContext,
-        frame_ctx: &mut FrameContext,
-        camera: &dyn Camera,
-        input: &Self::Input,
+        params: &Self::Params,
+        _frame_ctx: &FrameContext,
         encoder: &mut wgpu::CommandEncoder,
-    ) {
+    ) -> ShadowPassNode {
         let mut vp = vec![];
         for face in 0..6 {
             let proj = glm::perspective(1.0f32, std::f32::consts::PI * 0.5, 0.01, 100.0);
@@ -158,20 +165,20 @@ impl RenderPass for ShadowPass {
                     _ => glm::vec3(0.0, 1.0, 0.0),
                 }
             };
-            let eye = input.scene.point_lights[input.light_idx as usize].position;
+            let eye = params.scene.point_lights[params.light_idx as usize].position;
             let view = glm::look_at(&eye, &(eye + dir), &up);
             vp.push(UniformViewProjection::new(&ViewProjection(
                 view,
                 opengl_to_wgpu_matrix() * proj,
             )));
         }
-        self.light_vp.upload(&ctx.device_ctx, &vp[..]);
+        self.light_vp.upload(&self.ctx.device_ctx, &vp[..]);
 
         for face in 0..6 {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("shadow.pass"),
                 color_attachments: &[wgpu::RenderPassColorAttachment {
-                    view: &input.cubemap.face_views[face as usize],
+                    view: &params.cubemap.face_views[face as usize],
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color {
@@ -200,7 +207,11 @@ impl RenderPass for ShadowPass {
                 bytemuck::cast_slice(&[face as i32]),
             );
             render_pass.set_bind_group(0, &self.bindgroup, &[]);
-            input.scene.draw(&mut render_pass);
+            params.scene.draw(&mut render_pass);
+        }
+        ShadowPassNode {
+            cubemap: params.cubemap.clone(),
+            cubemap_res: self.cubemap_res,
         }
     }
 }

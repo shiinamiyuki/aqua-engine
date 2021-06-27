@@ -72,7 +72,7 @@ pub struct GPUMesh {
 }
 
 impl GPUMesh {
-    pub fn new(ctx: &mut DeviceContext, mesh: &Mesh) -> GPUMesh {
+    pub fn new(ctx: &DeviceContext, mesh: &Mesh) -> GPUMesh {
         let vertex_buffer = ctx
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {

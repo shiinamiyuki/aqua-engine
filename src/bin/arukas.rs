@@ -5,10 +5,9 @@ use arukas::{
     geometry::load_model,
     glm,
     render::{
-        fovx_to_fovy,
-        passes::{self, DeferredShadingInput},
-        Camera, FrameContext, GPUScene, Mesh, OribitalCamera, Perspective, PointLight,
-        RenderContext, RenderPass,
+        fovx_to_fovy, pipeline, Camera, DeferredShadingParams, DeferredShadingPipelineDescriptor,
+        FrameContext, GPUScene, Mesh, OribitalCamera, Perspective, PointLight, RenderContext,
+        RenderPass, RenderPipeline,
     },
 };
 
@@ -25,17 +24,17 @@ use winit::{
 use futures::executor::block_on;
 
 struct App {
-    ctx: RenderContext,
+    ctx: Arc<RenderContext>,
     size: winit::dpi::PhysicalSize<u32>,
     scene: Arc<GPUScene>,
     camera: OribitalCamera,
-    deferred_render_pass: passes::DeferredShadingPass,
+    deferred_shading_pipeline: Option<pipeline::DeferredShadingPipeline>,
     last_cursor_pos: Option<winit::dpi::PhysicalPosition<f64>>,
     is_key_down: bool,
 }
 impl App {
     fn new(window: &Window) -> App {
-        let mut ctx = block_on(RenderContext::new(&window));
+        let ctx = Arc::new(block_on(RenderContext::new(&window)));
         let models = if std::env::args().count() > 1 {
             let args: Vec<String> = std::env::args().collect();
             load_model(&args[1])
@@ -46,7 +45,7 @@ impl App {
             .into_iter()
             .map(|model| {
                 Arc::new(GPUMesh::new(
-                    &mut ctx.device_ctx,
+                    &ctx.device_ctx,
                     &Mesh::from_triangle_mesh(&model),
                 ))
             })
@@ -78,7 +77,9 @@ impl App {
             phi: 0.0,
             theta: glm::pi::<f32>() * 0.5,
         };
-        let deferred_render_pass = passes::DeferredShadingPass::new(&ctx);
+        let deferred_shading_pipeline = pipeline::DeferredShadingPipeline::create_pipeline(
+            &DeferredShadingPipelineDescriptor { ctx: ctx.clone() },
+        );
 
         let scene = Arc::new(GPUScene {
             meshes: gpu_meshes,
@@ -93,7 +94,7 @@ impl App {
             size: window.inner_size(),
             scene,
             camera,
-            deferred_render_pass,
+            deferred_shading_pipeline: Some(deferred_shading_pipeline),
             last_cursor_pos: None,
             is_key_down: false,
         }
@@ -126,10 +127,9 @@ impl App {
                 }
             }
             WindowEvent::MouseInput {
-                device_id,
                 state: ElementState::Released,
                 button: MouseButton::Left,
-                modifiers,
+                ..
             } => {
                 self.is_key_down = false;
                 true
@@ -138,7 +138,7 @@ impl App {
                 device_id: _,
                 state: ElementState::Pressed,
                 button: MouseButton::Left,
-                modifiers: _,
+                ..
             } => {
                 self.is_key_down = true;
                 true
@@ -166,22 +166,27 @@ impl App {
 
                 true
             }
-            WindowEvent::KeyboardInput {
-                device_id: _,
-                input: _,
-                is_synthetic: _,
-            } => false,
             _ => false,
         }
     }
     fn resize(&mut self, size: winit::dpi::PhysicalSize<u32>) {
         self.size = size;
-        self.ctx.resize(self.size)
+        self.deferred_shading_pipeline = None;
+        // self.ctx.resize(self.size);
+        {
+            let ctx = Arc::get_mut(&mut self.ctx).unwrap();
+            ctx.resize(self.size);
+        }
+        self.deferred_shading_pipeline = Some(pipeline::DeferredShadingPipeline::create_pipeline(
+            &DeferredShadingPipelineDescriptor {
+                ctx: self.ctx.clone(),
+            },
+        ));
     }
     fn render(&mut self) -> Result<(), wgpu::SwapChainError> {
         let frame = self.ctx.swap_chain.get_current_frame()?.output;
 
-        let mut frame_ctx = FrameContext { frame };
+        let frame_ctx = FrameContext { frame };
         let mut encoder =
             self.ctx
                 .device_ctx
@@ -189,16 +194,14 @@ impl App {
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                     label: Some("Command Encoder"),
                 });
-        let input = DeferredShadingInput {
+        let params = DeferredShadingParams {
             scene: self.scene.clone(),
+            camera: Camera::Orbital(self.camera.clone()),
         };
-        self.deferred_render_pass.record_command(
-            &mut self.ctx,
-            &mut frame_ctx,
-            &self.camera,
-            &input,
-            &mut encoder,
-        );
+        self.deferred_shading_pipeline
+            .as_mut()
+            .unwrap()
+            .record_command(&params, &frame_ctx, &mut encoder);
 
         self.ctx
             .device_ctx
