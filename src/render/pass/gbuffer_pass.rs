@@ -5,25 +5,47 @@ use std::{
 
 use crate::render::{
     Buffer, BufferData, Camera, DeviceContext, FrameContext, GPUMesh, GPUScene, RenderContext,
-    Scene, Size, Texture, UniformViewProjection, Vertex,
+    Size, Texture, UniformViewProjection, Vertex,
 };
 
 use super::RenderPass;
 
-#[derive(Clone)]
+/*
+GBuffer Layout
+
+rt0: rgb:color, a: metallic
+rt1: rgb:normal, b: roughness
+rt2: rgb:world pos
+
+
+
+*/
+// #[derive(Clone)]
 pub struct GBuffer {
+    pub render_targets: [Arc<Texture>; 3],
+    pub formats: [wgpu::TextureFormat; 3],
+    pub layout: wgpu::BindGroupLayout,
     pub depth: Arc<Texture>,
-    pub normal: Arc<Texture>,
-    pub world_pos: Arc<Texture>,
-    pub layout: Arc<wgpu::BindGroupLayout>,
 }
 impl GBuffer {
-    pub const DEPTH_FORMAT: wgpu::TextureFormat = Texture::DEPTH_FORMAT;
-    pub const NORMAL_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba32Float;
-    pub const WOLRD_POS_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba32Float;
-
-    pub fn bind_group_layout(ctx: &DeviceContext) -> wgpu::BindGroupLayout {
-        ctx.device
+    // pub const DEPTH_FORMAT: wgpu::TextureFormat = Texture::DEPTH_FORMAT;
+    // pub const NORMAL_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba32Float;
+    // pub const WOLRD_POS_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba32Float;
+    pub fn rt_formats(hdr: bool) -> [wgpu::TextureFormat; 3] {
+        if hdr {
+            [
+                wgpu::TextureFormat::Rgba32Float,
+                wgpu::TextureFormat::Rgba32Float,
+                wgpu::TextureFormat::Rgba32Float,
+            ]
+        } else {
+            unimplemented!()
+        }
+    }
+    pub fn bind_group_layout(ctx: &DeviceContext, hdr: bool) -> wgpu::BindGroupLayout {
+        let formats = Self::rt_formats(true);
+        let layout = ctx
+            .device
             .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("gbuffer.bindgroup.layout"),
                 entries: &[
@@ -40,7 +62,7 @@ impl GBuffer {
                     wgpu::BindGroupLayoutEntry {
                         ty: wgpu::BindingType::StorageTexture {
                             access: wgpu::StorageTextureAccess::ReadOnly,
-                            format: Self::NORMAL_FORMAT,
+                            format: formats[0],
                             view_dimension: wgpu::TextureViewDimension::D2,
                         },
                         binding: 1,
@@ -50,15 +72,59 @@ impl GBuffer {
                     wgpu::BindGroupLayoutEntry {
                         ty: wgpu::BindingType::StorageTexture {
                             access: wgpu::StorageTextureAccess::ReadOnly,
-                            format: Self::WOLRD_POS_FORMAT,
+                            format: formats[1],
                             view_dimension: wgpu::TextureViewDimension::D2,
                         },
                         binding: 2,
                         count: None,
                         visibility: wgpu::ShaderStage::all(),
                     },
+                    wgpu::BindGroupLayoutEntry {
+                        ty: wgpu::BindingType::StorageTexture {
+                            access: wgpu::StorageTextureAccess::ReadOnly,
+                            format: formats[2],
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                        },
+                        binding: 3,
+                        count: None,
+                        visibility: wgpu::ShaderStage::all(),
+                    },
                 ],
-            })
+            });
+        layout
+    }
+    pub fn new(ctx: &DeviceContext, size: &Size) -> Self {
+        let formats = Self::rt_formats(true);
+        let layout = Self::bind_group_layout(ctx, true);
+        Self {
+            formats,
+            depth: Arc::new(Texture::create_depth_texture_with_size(
+                &ctx.device,
+                size,
+                "gbuffer.depth",
+            )),
+            render_targets: [
+                Arc::new(Texture::create_color_attachment(
+                    &ctx.device,
+                    size,
+                    formats[0],
+                    "gbuffer.rt0",
+                )),
+                Arc::new(Texture::create_color_attachment(
+                    &ctx.device,
+                    size,
+                    formats[1],
+                    "gbuffer.rt1",
+                )),
+                Arc::new(Texture::create_color_attachment(
+                    &ctx.device,
+                    size,
+                    formats[2],
+                    "gbuffer.rt2",
+                )),
+            ],
+            layout,
+        }
     }
     pub fn create_bind_group(&self, ctx: &DeviceContext) -> wgpu::BindGroup {
         ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -71,11 +137,15 @@ impl GBuffer {
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&self.normal.view),
+                    resource: wgpu::BindingResource::TextureView(&self.render_targets[0].view),
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
-                    resource: wgpu::BindingResource::TextureView(&self.world_pos.view),
+                    resource: wgpu::BindingResource::TextureView(&self.render_targets[1].view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::TextureView(&self.render_targets[2].view),
                 },
             ],
         })
@@ -172,6 +242,7 @@ impl RenderPass for GBufferPass {
                 push_constant_ranges: &[],
             });
         let sc_desc = &ctx.sc_desc;
+        let gbuffer_formats = GBuffer::rt_formats(true);
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("GBuferPass Render Pipeline"),
             layout: Some(&render_pipeline_layout),
@@ -186,21 +257,18 @@ impl RenderPass for GBufferPass {
                 entry_point: "main",
                 targets: &[
                     wgpu::ColorTargetState {
-                        // 4.
-                        format: GBuffer::NORMAL_FORMAT,
-                        blend: Some(wgpu::BlendState {
-                            alpha: wgpu::BlendComponent::REPLACE,
-                            color: wgpu::BlendComponent::REPLACE,
-                        }),
+                        format: gbuffer_formats[0],
+                        blend: None,
                         write_mask: wgpu::ColorWrite::ALL,
                     },
                     wgpu::ColorTargetState {
-                        // 4.
-                        format: GBuffer::WOLRD_POS_FORMAT,
-                        blend: Some(wgpu::BlendState {
-                            alpha: wgpu::BlendComponent::REPLACE,
-                            color: wgpu::BlendComponent::REPLACE,
-                        }),
+                        format: gbuffer_formats[1],
+                        blend: None,
+                        write_mask: wgpu::ColorWrite::ALL,
+                    },
+                    wgpu::ColorTargetState {
+                        format: gbuffer_formats[2],
+                        blend: None,
                         write_mask: wgpu::ColorWrite::ALL,
                     },
                 ],
@@ -249,27 +317,40 @@ impl RenderPass for GBufferPass {
 
         let attachment_descs = [
             wgpu::RenderPassColorAttachment {
-                view: &params.gbuffer.normal.view,
+                view: &params.gbuffer.render_targets[0].view,
                 resolve_target: None,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(wgpu::Color {
                         r: 0.0,
                         g: 0.0,
                         b: 0.0,
-                        a: 1.0,
+                        a: 0.0,
                     }),
                     store: true,
                 },
             },
             wgpu::RenderPassColorAttachment {
-                view: &params.gbuffer.world_pos.view,
+                view: &params.gbuffer.render_targets[1].view,
                 resolve_target: None,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(wgpu::Color {
                         r: 0.0,
                         g: 0.0,
                         b: 0.0,
-                        a: 1.0,
+                        a: 0.0,
+                    }),
+                    store: true,
+                },
+            },
+            wgpu::RenderPassColorAttachment {
+                view: &params.gbuffer.render_targets[2].view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color {
+                        r: 0.0,
+                        g: 0.0,
+                        b: 0.0,
+                        a: 0.0,
                     }),
                     store: true,
                 },

@@ -4,7 +4,7 @@ use wgpu::util::DeviceExt;
 
 use crate::render::{
     compile_shader_file, Buffer, BufferData, Camera, CubeMap, FrameContext, GPUScene, PointLight,
-    PointLightData, RenderContext, RenderPass, Scene, Size, Texture, UniformViewProjection, Vertex,
+    PointLightData, RenderContext, RenderPass, Size, Texture, UniformViewProjection, Vertex,
 };
 
 use super::{
@@ -94,7 +94,7 @@ impl ComputePass for ShadowMapPass {
                     label: Some("shadow_map.pipeline.layout"),
                     bind_group_layouts: &[
                         &bind_group_layout,
-                        &GBuffer::bind_group_layout(&ctx.device_ctx),
+                        &GBuffer::bind_group_layout(&ctx.device_ctx, true),
                     ],
                     push_constant_ranges: &[wgpu::PushConstantRange {
                         stages: wgpu::ShaderStage::COMPUTE,

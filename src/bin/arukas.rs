@@ -1,8 +1,7 @@
-use std::sync::Arc;
+use std::{path::Path, sync::Arc};
 
 use akari::Frame;
 use arukas::{
-    geometry::load_model,
     glm,
     render::{
         fovx_to_fovy, pipeline, Camera, DeferredShadingParams, DeferredShadingPipelineDescriptor,
@@ -35,21 +34,6 @@ struct App {
 impl App {
     fn new(window: &Window) -> App {
         let ctx = Arc::new(block_on(RenderContext::new(&window)));
-        let models = if std::env::args().count() > 1 {
-            let args: Vec<String> = std::env::args().collect();
-            load_model(&args[1])
-        } else {
-            load_model("./living_room.obj")
-        };
-        let gpu_meshes: Vec<Arc<GPUMesh>> = models
-            .into_iter()
-            .map(|model| {
-                Arc::new(GPUMesh::new(
-                    &ctx.device_ctx,
-                    &Mesh::from_triangle_mesh(&model),
-                ))
-            })
-            .collect();
         // let camera = LookAtCamera {
         //     eye: glm::vec3(0.0, 0.6, 3.0),
         //     center: glm::vec3(0.0, 0.6, 2.0),
@@ -81,14 +65,7 @@ impl App {
             &DeferredShadingPipelineDescriptor { ctx: ctx.clone() },
         );
 
-        let scene = Arc::new(GPUScene {
-            meshes: gpu_meshes,
-            point_lights: vec![PointLight {
-                position: glm::vec3(0.0, 1.2, 2.0),
-                emission: glm::vec3(1.0, 1.0, 1.0),
-            }],
-        });
-
+        let scene = Arc::new(GPUScene::load_scene(Path::new("scenes/room.json"), &ctx.device_ctx));
         App {
             ctx,
             size: window.inner_size(),
@@ -217,7 +194,7 @@ fn main() {
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
         .with_title(String::from("Arukas Engine"))
-        .with_resizable(false)
+        // .with_resizable(false)
         .with_inner_size(winit::dpi::PhysicalSize::<u32>::new(1280, 720))
         .build(&event_loop)
         .unwrap();

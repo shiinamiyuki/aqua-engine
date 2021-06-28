@@ -1,6 +1,7 @@
 pub mod render;
 pub mod geometry;
 pub mod core;
+pub mod nn;
 pub use nalgebra as na;
 pub use nalgebra_glm as glm;
 

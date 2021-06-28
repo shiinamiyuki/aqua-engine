@@ -7,7 +7,7 @@ use wgpu::util::DeviceExt;
 use crate::{
     render::{
         compile_shader_file, Buffer, BufferData, Camera, ComputePass, CubeMap, DeviceContext,
-        FrameContext, GPUScene, PointLight, PointLightData, RenderContext, RenderPass, Scene, Size,
+        FrameContext, GPUScene, PointLight, PointLightData, RenderContext, RenderPass, Size,
         Texture, UniformViewProjection, Vertex, ViewProjection,
     },
     util,
@@ -367,7 +367,7 @@ impl RenderPass for SSGIPass {
                     label: Some("ssgi.pipeline.layout"),
                     bind_group_layouts: &[
                         &bind_group_layout,
-                        &GBuffer::bind_group_layout(&ctx.device_ctx),
+                        &GBuffer::bind_group_layout(&ctx.device_ctx, true),
                         &camera_bind_group_layout,
                         &depth_quad_tree.zquad_bind_group_layout,
                     ],

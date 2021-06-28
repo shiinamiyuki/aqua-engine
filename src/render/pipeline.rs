@@ -1,6 +1,11 @@
 use std::sync::Arc;
 
-use super::{Camera, ComputePass, CubeMap, FrameContext, GBuffer, GBufferPass, GBufferPassDescriptor, GBufferPassParams, GPUScene, PostProcessPass, PostProcessPassDescriptor, PostProcessPassParams, RenderContext, RenderPass, SSGIPass, SSGIPassDescriptor, SSGIPassParams, ShadowMapPass, ShadowMapPassDescriptor, ShadowPass, ShadowPassDescriptor, ShadowPassParams, Size, Texture};
+use super::{
+    Camera, ComputePass, CubeMap, FrameContext, GBuffer, GBufferPass, GBufferPassDescriptor,
+    GBufferPassParams, GPUScene, PostProcessPass, PostProcessPassDescriptor, PostProcessPassParams,
+    RenderContext, RenderPass, SSGIPass, SSGIPassDescriptor, SSGIPassParams, ShadowMapPass,
+    ShadowMapPassDescriptor, ShadowPass, ShadowPassDescriptor, ShadowPassParams, Size, Texture,
+};
 
 pub trait RenderPipeline {
     type Descriptor;
@@ -27,7 +32,7 @@ pub struct DeferredShadingPipeline {
     gbuffer: Arc<GBuffer>,
     shadow_cube_map: Arc<CubeMap>,
     color_buffer: Arc<Texture>,
-    ctx:Arc<RenderContext>,
+    ctx: Arc<RenderContext>,
 }
 
 #[derive(Clone)]
@@ -40,26 +45,7 @@ impl RenderPipeline for DeferredShadingPipeline {
     type Descriptor = DeferredShadingPipelineDescriptor;
     fn create_pipeline(desc: &Self::Descriptor) -> Self {
         let ctx = &desc.ctx;
-        let gbuffer = GBuffer {
-            depth: Arc::new(Texture::create_depth_texture_from_sc(
-                &ctx.device_ctx.device,
-                &ctx.sc_desc,
-                "gbuffer.depth",
-            )),
-            normal: Arc::new(Texture::create_color_attachment(
-                &ctx.device_ctx.device,
-                &Size(ctx.sc_desc.width, ctx.sc_desc.height),
-                wgpu::TextureFormat::Rgba32Float,
-                "gbuffer.normal",
-            )),
-            world_pos: Arc::new(Texture::create_color_attachment(
-                &ctx.device_ctx.device,
-                &Size(ctx.sc_desc.width, ctx.sc_desc.height),
-                wgpu::TextureFormat::Rgba32Float,
-                "gbuffer.world_pos",
-            )),
-            layout: Arc::new(GBuffer::bind_group_layout(&ctx.device_ctx)),
-        };
+        let gbuffer = GBuffer::new(&ctx.device_ctx, &Size(ctx.size.width, ctx.size.height));
         let cubemap_res = 512;
         let shadow_cube_map = Arc::new(CubeMap::create_cubemap(
             &ctx.device_ctx.device,
@@ -75,7 +61,7 @@ impl RenderPipeline for DeferredShadingPipeline {
             "deferred.color",
         ));
         Self {
-            gbuffer:Arc::new(gbuffer),
+            gbuffer: Arc::new(gbuffer),
             shadow_cube_map,
             shadow_pass: ShadowPass::create_pass(&ShadowPassDescriptor {
                 ctx: ctx.clone(),
@@ -88,10 +74,8 @@ impl RenderPipeline for DeferredShadingPipeline {
             post_process_pass: PostProcessPass::create_pass(&PostProcessPassDescriptor {
                 ctx: ctx.clone(),
             }),
-            ssgi_pass: SSGIPass::create_pass(&SSGIPassDescriptor{
-                ctx:ctx.clone()
-            }),
-            ctx:ctx.clone(),
+            ssgi_pass: SSGIPass::create_pass(&SSGIPassDescriptor { ctx: ctx.clone() }),
+            ctx: ctx.clone(),
             color_buffer,
         }
     }
@@ -118,7 +102,8 @@ impl RenderPipeline for DeferredShadingPipeline {
                 camera: params.camera.clone(),
             };
             {
-                self.gbuffer_pass.record_command(&params, frame_ctx, encoder);
+                self.gbuffer_pass
+                    .record_command(&params, frame_ctx, encoder);
             }
         }
         // {
@@ -146,10 +131,11 @@ impl RenderPipeline for DeferredShadingPipeline {
             self.ssgi_pass.record_command(&params, frame_ctx, encoder);
         }
         {
-            let params = PostProcessPassParams{
-                color_buf:self.color_buffer.clone(),
+            let params = PostProcessPassParams {
+                color_buf: self.color_buffer.clone(),
             };
-            self.post_process_pass.record_command(&params, frame_ctx, encoder);
+            self.post_process_pass
+                .record_command(&params, frame_ctx, encoder);
         }
     }
 }

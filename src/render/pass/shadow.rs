@@ -91,10 +91,7 @@ impl RenderPass for ShadowPass {
                 entry_point: "main",
                 targets: &[wgpu::ColorTargetState {
                     format: wgpu::TextureFormat::R32Float,
-                    blend: Some(wgpu::BlendState {
-                        alpha: wgpu::BlendComponent::REPLACE,
-                        color: wgpu::BlendComponent::REPLACE,
-                    }),
+                    blend: None,
                     write_mask: wgpu::ColorWrite::ALL,
                 }],
             }),

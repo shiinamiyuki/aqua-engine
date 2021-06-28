@@ -20,8 +20,9 @@ layout(set=0, binding=4) buffer Seeds{
 
 layout(set=1, binding=0) uniform texture2D t_depth;
 // layout(set=1, binding=0, r32f) readonly uniform image2D t_depth;
-layout(set=1, binding=1,rgba32f)  readonly uniform image2D t_normal;
-layout(set=1, binding=2,rgba32f)  readonly uniform image2D t_world_pos;
+layout(set=1, binding=1,rgba32f)  readonly uniform image2D rt0;
+layout(set=1, binding=2,rgba32f)  readonly uniform image2D rt1;
+layout(set=1, binding=3,rgba32f)  readonly uniform image2D rt2;
 
 layout(set=2, binding=0)
 uniform UniformViewProj {
@@ -76,7 +77,21 @@ vec3 offset_ray(const vec3 p, const vec3 n)
 vec3 offset_along_normal(const vec3 p, const vec3 n, vec3 dir, float k){
     return p + n * k / dot(dir, n);
 }
-
+float get_metallic(ivec2 pixel){
+    return imageLoad(rt0, pixel).w;
+}
+float get_roughness(ivec2 pixel){
+    return imageLoad(rt1, pixel).w;
+}
+vec3 get_color(ivec2 pixel){
+    return imageLoad(rt0, pixel).rgb;
+}
+vec3 get_normal(ivec2 pixel){
+    return imageLoad(rt1, pixel).xyz;
+}
+vec3 get_pos(ivec2 pixel){
+    return imageLoad(rt2, pixel).xyz;
+}
 struct Ray {
     vec3 o;
     vec3 d;
@@ -145,7 +160,7 @@ struct BSDF {
 };
 BSDF get_bsdf(ivec2 pixel){
     BSDF bsdf;
-    vec3 normal = imageLoad(t_normal, pixel).xyz;
+    vec3 normal = get_normal(pixel);
     bsdf.frame = frame_from1(normal);
     bsdf.n = normal;
     bsdf.color = vec3(1);
@@ -181,14 +196,14 @@ BSDFSample sample_bsdf(const BSDF bsdf, vec3 wo){
 
 
 vec3 direct_lighting(const BSDF bsdf, ivec2 pixel, const vec3 wo) {
-    vec3 x = imageLoad(t_world_pos, pixel).xyz;
+    vec3 x = get_pos(pixel);
     vec3 wi = (light.position - x);
     
     float dist_sqr = dot(wi, wi);
     float dist = sqrt(dist_sqr);
     wi /= dist;
 
-    vec3 normal = imageLoad(t_normal, pixel).xyz;
+    vec3 normal = get_normal(pixel);
     // vec3 offset_x = offset_along_normal(x, normal, wi, 0.01 * (1.0 + dist/(dist + 1.0)));
     float offset_k = mix(0.0001, 0.02, 0.2 * dist);
     vec3 offset_x = x + wi * offset_k / dot(wi, normal);
@@ -388,7 +403,7 @@ vec3 ssgi(ivec2 pixel){
     vec3 beta = vec3(1);
     vec3 debug = vec3(0);
     float gi_boost = 0.0;
-    vec3 wo = -normalize(imageLoad(t_world_pos, pixel).xyz - eye_pos);
+    vec3 wo = -normalize(get_pos(pixel) - eye_pos);
     for(int bounce =0; bounce <= 1; bounce++){
         BSDF bsdf = get_bsdf(pixel);
         float boost = bounce == 0 ? 1.0 : (1.0 + gi_boost);
@@ -399,8 +414,8 @@ vec3 ssgi(ivec2 pixel){
         BSDFSample bsdf_sample = sample_bsdf(bsdf, wo);
         vec3 w = bsdf_sample.wi;
         // return w;
-        // return 0.5 * imageLoad(t_normal, pixel).xyz + 0.5;
-        Ray ray = Ray(imageLoad(t_world_pos, pixel).xyz, w);
+        // return 0.5 * get_normal(pixel) + 0.5;
+        Ray ray = Ray(get_pos(pixel), w);
         ray.o = offset_ray(ray.o, bsdf.frame.N);
         SSTraceRecord record;
         record.ray = ray;
@@ -421,13 +436,13 @@ vec3 ssgi(ivec2 pixel){
     return L;
 }
 vec3 ssao(ivec2 pixel){
-    vec3 normal = imageLoad(t_normal, pixel).xyz;
+    vec3 normal = get_normal(pixel);
     vec3 w = sample_hemisphere();
 
     Frame frame = frame_from1(normal);
     w = to_world(frame, w);
 
-    Ray ray = Ray(imageLoad(t_world_pos, pixel).xyz, w);
+    Ray ray = Ray(get_pos(pixel), w);
     SSTraceRecord record;
     record.ray = ray;
     record.pixel = pixel;
@@ -443,10 +458,10 @@ vec3 ssao(ivec2 pixel){
     }
 }
 vec3 ssr(ivec2 pixel){
-    vec3 normal = imageLoad(t_normal, pixel).xyz;
-    vec3 x = imageLoad(t_world_pos, pixel).xyz;
+    vec3 normal = get_normal(pixel);
+    vec3 x = get_pos(pixel);
     vec3 L = vec3(0);
-    vec3 wo = -normalize(imageLoad(t_world_pos, pixel).xyz - eye_pos);
+    vec3 wo = -normalize(get_pos(pixel) - eye_pos);
     if(normal.y > 0.0 && x.y < 0.1){
         vec3 wo = normalize(x - eye_pos);
         vec3 wi = reflect(wo, normal);

@@ -1,16 +1,16 @@
-pub mod mesh;
 pub mod svo;
 pub mod virtual_texture;
 
 use std::ops::{Div, Sub};
 
-pub use mesh::*;
 use na::Vector2;
 pub use svo::*;
 pub use virtual_texture::*;
 
 use crate::glm;
 use crate::na;
+
+pub use akari::shape::TriangleMesh;
 
 #[derive(Debug, Clone, Copy)]
 pub struct Bound2<T: na::Scalar> {
