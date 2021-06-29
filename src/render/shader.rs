@@ -39,7 +39,7 @@ impl CompilationCache {
         });
         let artifact =
             self.compiler
-                .compile_into_spirv(&source, shader_kind, input_file_name, "main", None);
+                .compile_into_spirv(&source, shader_kind, input_file_name, "main", Some(&options));
 
         match artifact {
             Ok(spirv) => {

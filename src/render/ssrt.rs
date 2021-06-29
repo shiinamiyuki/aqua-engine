@@ -71,7 +71,7 @@ pub struct SSRTUniformData {
 unsafe impl Zeroable for SSRTUniformData {}
 unsafe impl Pod for SSRTUniformData {}
 impl BufferData for SSRTUniformData {
-    type Native = SSRTUniformData;
+    type Native = SSRTUniform;
     fn new(value: &Self::Native) -> Self {
         assert!(offset_of!(SSRTUniformData, view_dir) % 4 == 0);
         assert!(offset_of!(SSRTUniformData, eye_pos) % 4 == 0);

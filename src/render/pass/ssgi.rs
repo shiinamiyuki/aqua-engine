@@ -1,7 +1,10 @@
 use std::{num::NonZeroU32, path::Path, sync::Arc};
 
 use crate::glm;
+use crate::render::DepthQuadTree;
 use crate::render::GBuffer;
+use crate::render::SSRTBindGroup;
+use crate::render::SSRTUniform;
 use crate::{
     render::{
         compile_shader_file, Buffer, BufferData, Camera, ComputePass, CubeMap, DeviceContext,
@@ -13,7 +16,6 @@ use crate::{
 use nalgebra_glm::Vec3;
 use rand::Rng;
 use wgpu::util::DeviceExt;
-use crate::render::DepthQuadTree;
 pub struct SSGIPass {
     pub pipeline: wgpu::ComputePipeline,
     pub bind_group_layout: wgpu::BindGroupLayout,
@@ -24,6 +26,7 @@ pub struct SSGIPass {
     camera_bindgroup: wgpu::BindGroup,
     depth_quad_tree: DepthQuadTree,
     ctx: Arc<RenderContext>,
+    ssrt_bindgroup: SSRTBindGroup,
     // light_vp: Buffer<UniformViewProjection>,
 }
 
@@ -133,6 +136,7 @@ impl RenderPass for SSGIPass {
             label: Some("ssgi.bindgroup.2"),
             layout: &camera_bind_group_layout,
         });
+        let ssrt_bindgroup = SSRTBindGroup::new(&ctx.device_ctx);
         let depth_quad_tree = DepthQuadTree::new(ctx, zquad_level);
         let pipeline_layout =
             ctx.device_ctx
@@ -142,13 +146,11 @@ impl RenderPass for SSGIPass {
                     bind_group_layouts: &[
                         &bind_group_layout,
                         &GBuffer::bind_group_layout(&ctx.device_ctx, true),
-                        &camera_bind_group_layout,
+                        &ssrt_bindgroup.layout,
                         &depth_quad_tree.zquad_bind_group_layout,
+                        &camera_bind_group_layout,
                     ],
-                    push_constant_ranges: &[wgpu::PushConstantRange {
-                        stages: wgpu::ShaderStage::COMPUTE,
-                        range: 0..(4 * 4 * 3 + 16),
-                    }],
+                    push_constant_ranges: &[],
                 });
         let pipeline =
             ctx.device_ctx
@@ -188,6 +190,7 @@ impl RenderPass for SSGIPass {
             camera_bindgroup,
             camera_uniform,
             depth_quad_tree,
+            ssrt_bindgroup,
             ctx: ctx.clone(),
         }
     }
@@ -207,6 +210,19 @@ impl RenderPass for SSGIPass {
             &[PointLightData::new(
                 &params.scene.point_lights[params.light_idx as usize],
             )],
+        );
+        self.ssrt_bindgroup.buffer.upload(
+            &ctx.device_ctx,
+            &[BufferData::new(&SSRTUniform {
+                image_width: ctx.size.width,
+                image_height: ctx.size.height,
+                lod_width: self.depth_quad_tree.width,
+                lod_height: self.depth_quad_tree.height,
+                max_level: self.depth_quad_tree.level,
+                near: 0.0,
+                view_dir: params.view_dir,
+                eye_pos: params.eye_pos,
+            })],
         );
         let bindgroup0 = ctx
             .device_ctx
@@ -252,32 +268,13 @@ impl RenderPass for SSGIPass {
             label: Some("SSGI pass"),
         });
         compute_pass.set_pipeline(&self.pipeline);
-        compute_pass.set_push_constants(
-            0,
-            bytemuck::cast_slice(&[
-                params.light_idx as i32,
-                params.color.extent.width as i32,
-                params.color.extent.height as i32,
-            ]),
-        );
+
         // println!("{}", params.view_dir);
-        compute_pass.set_push_constants(4 * 4, bytemuck::cast_slice(params.view_dir.as_slice()));
-        compute_pass.set_push_constants(
-            4 * 4 + 4 * 4,
-            bytemuck::cast_slice(params.eye_pos.as_slice()),
-        );
-        compute_pass.set_push_constants(
-            4 * 4 * 3,
-            bytemuck::cast_slice(&[
-                self.depth_quad_tree.width * 2,
-                self.depth_quad_tree.height * 2,
-                self.depth_quad_tree.level,
-            ]),
-        );
         compute_pass.set_bind_group(0, &bindgroup0, &[]);
         compute_pass.set_bind_group(1, &bindgroup1, &[]);
-        compute_pass.set_bind_group(2, &self.camera_bindgroup, &[]);
+        compute_pass.set_bind_group(2, &self.ssrt_bindgroup.bindgroup, &[]);
         compute_pass.set_bind_group(3, &self.depth_quad_tree.zquad_bind_group, &[]);
+        compute_pass.set_bind_group(4, &self.camera_bindgroup, &[]);
         compute_pass.dispatch(
             (params.color.extent.width + 15) / 16,
             (params.color.extent.height + 15) / 16,

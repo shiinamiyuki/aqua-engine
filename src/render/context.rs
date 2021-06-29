@@ -64,6 +64,7 @@ impl RenderContext {
                         max_push_constant_size: 128,
                         max_storage_buffer_binding_size: 1920 * 1080 * 16,
                         max_uniform_buffer_binding_size: 1920 * 1080 * 16,
+                        max_bind_groups:8,
                         ..wgpu::Limits::default()
                     },
                     label: None,
