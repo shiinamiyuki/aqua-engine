@@ -7,6 +7,8 @@ pub mod texture;
 pub mod pass;
 pub mod shader;
 pub mod pipeline;
+pub mod gbuffer;
+pub mod ssrt;
 // pub mod svo;
 pub mod scene;
 
@@ -20,6 +22,8 @@ pub use mesh::*;
 pub use texture::*;
 pub use pass::*;
 pub use pipeline::*;
+pub use gbuffer::*;
+pub use ssrt::*;
 // pub use svo::*;
 
 #[derive(Debug, Clone, Copy, Default, Eq, PartialEq)]

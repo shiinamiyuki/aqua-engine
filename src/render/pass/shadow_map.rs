@@ -6,9 +6,9 @@ use crate::render::{
     compile_shader_file, Buffer, BufferData, Camera, CubeMap, FrameContext, GPUScene, PointLight,
     PointLightData, RenderContext, RenderPass, Size, Texture, UniformViewProjection, Vertex,
 };
-
+use crate::render::GBuffer;
 use super::{
-    ComputePass, GBuffer, GBufferPass, GBufferPassParams, ShadowPass,
+    ComputePass, GBufferPass, GBufferPassParams, ShadowPass,
 };
 
 pub struct ShadowMapPass {

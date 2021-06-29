@@ -1,6 +1,9 @@
 use std::{cell::RefCell, collections::HashMap, sync::Arc};
 
-use shaderc::{CompilationArtifact, Compiler, ShaderKind};
+use shaderc::{
+    CompilationArtifact, CompileOptions, Compiler, IncludeCallbackResult, ResolvedInclude,
+    ShaderKind,
+};
 
 struct CompilationCache {
     pub compiler: Compiler,
@@ -23,6 +26,17 @@ impl CompilationCache {
         if let Some(spirv) = self.cache.get(source) {
             return Some(spirv.clone());
         }
+        let mut options = CompileOptions::new().unwrap();
+        options.set_include_callback(|name, _include_type, _src, _depth| -> IncludeCallbackResult {
+            let filename = format!("src/shaders/{}", name);
+            let content = std::fs::read_to_string(&filename).unwrap_or_else(|_| {
+                panic!("failed to resolved include {}", name);
+            });
+            Ok(ResolvedInclude {
+                content,
+                resolved_name: filename,
+            })
+        });
         let artifact =
             self.compiler
                 .compile_into_spirv(&source, shader_kind, input_file_name, "main", None);
