@@ -1,11 +1,10 @@
-use std::mem::size_of;
 use std::{num::NonZeroU32, path::Path, sync::Arc};
 
 use crate::glm;
+use crate::render::DepthQuadTree;
 use crate::render::GBuffer;
 use crate::render::SSRTBindGroup;
 use crate::render::SSRTUniform;
-use crate::render::{DepthQuadTree, SSRTUniformData};
 use crate::{
     render::{
         compile_shader_file, Buffer, BufferData, Camera, ComputePass, CubeMap, DeviceContext,
@@ -17,7 +16,6 @@ use crate::{
 use nalgebra_glm::Vec3;
 use rand::Rng;
 use wgpu::util::DeviceExt;
-use wgpu::PushConstantRange;
 pub struct SSGIPass {
     pub pipeline: wgpu::ComputePipeline,
     pub bind_group_layout: wgpu::BindGroupLayout,
@@ -148,14 +146,11 @@ impl RenderPass for SSGIPass {
                     bind_group_layouts: &[
                         &bind_group_layout,
                         &GBuffer::bind_group_layout(&ctx.device_ctx, true),
-                        // &ssrt_bindgroup.layout,
+                        &ssrt_bindgroup.layout,
                         &depth_quad_tree.zquad_bind_group_layout,
                         &camera_bind_group_layout,
                     ],
-                    push_constant_ranges: &[PushConstantRange {
-                        stages: wgpu::ShaderStage::COMPUTE,
-                        range: 0..size_of::<SSRTUniformData>() as u32,
-                    }],
+                    push_constant_ranges: &[],
                 });
         let pipeline =
             ctx.device_ctx
@@ -216,19 +211,19 @@ impl RenderPass for SSGIPass {
                 &params.scene.point_lights[params.light_idx as usize],
             )],
         );
-        // self.ssrt_bindgroup.buffer.upload(
-        //     &ctx.device_ctx,
-        //     &[BufferData::new(&SSRTUniform {
-        //         image_width: ctx.size.width,
-        //         image_height: ctx.size.height,
-        //         lod_width: self.depth_quad_tree.width,
-        //         lod_height: self.depth_quad_tree.height,
-        //         max_level: self.depth_quad_tree.level,
-        //         near: 0.0,
-        //         view_dir: params.view_dir,
-        //         eye_pos: params.eye_pos,
-        //     })],
-        // );
+        self.ssrt_bindgroup.buffer.upload(
+            &ctx.device_ctx,
+            &[BufferData::new(&SSRTUniform {
+                image_width: ctx.size.width,
+                image_height: ctx.size.height,
+                lod_width: self.depth_quad_tree.width * 2,
+                lod_height: self.depth_quad_tree.height * 2,
+                max_level: self.depth_quad_tree.level,
+                near: 0.0,
+                view_dir: params.view_dir,
+                eye_pos: params.eye_pos,
+            })],
+        );
         let bindgroup0 = ctx
             .device_ctx
             .device
@@ -277,22 +272,9 @@ impl RenderPass for SSGIPass {
         // println!("{}", params.view_dir);
         compute_pass.set_bind_group(0, &bindgroup0, &[]);
         compute_pass.set_bind_group(1, &bindgroup1, &[]);
-        // compute_pass.set_bind_group(2, &self.ssrt_bindgroup.bindgroup, &[]);
-        compute_pass.set_push_constants(
-            0,
-            bytemuck::cast_slice(&[SSRTUniformData::new(&SSRTUniform {
-                image_width: ctx.size.width,
-                image_height: ctx.size.height,
-                lod_width: self.depth_quad_tree.width,
-                lod_height: self.depth_quad_tree.height,
-                max_level: self.depth_quad_tree.level,
-                near: 0.0,
-                view_dir: params.view_dir,
-                eye_pos: params.eye_pos,
-            })]),
-        );
-        compute_pass.set_bind_group(2, &self.depth_quad_tree.zquad_bind_group, &[]);
-        compute_pass.set_bind_group(3, &self.camera_bindgroup, &[]);
+        compute_pass.set_bind_group(2, &self.ssrt_bindgroup.bindgroup, &[]);
+        compute_pass.set_bind_group(3, &self.depth_quad_tree.zquad_bind_group, &[]);
+        compute_pass.set_bind_group(4, &self.camera_bindgroup, &[]);
         compute_pass.dispatch(
             (params.color.extent.width + 15) / 16,
             (params.color.extent.height + 15) / 16,

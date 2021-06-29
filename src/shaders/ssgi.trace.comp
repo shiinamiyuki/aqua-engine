@@ -20,9 +20,9 @@ layout(set=0, binding=4) buffer Seeds{
 };
 
 #define GBUFFER_BINDGROUP 1
-// #define SSRT_DATA_BINDGROUP 2 
-#define DEPTH_LOD_BINDGROUP 2
-#define VP_BINDGROUP 3
+#define SSRT_DATA_BINDGROUP 2 
+#define DEPTH_LOD_BINDGROUP 3
+#define VP_BINDGROUP 4
 
 #include "raytrace.glsl"
 #include "bsdf.glsl"
