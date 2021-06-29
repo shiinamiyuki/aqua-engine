@@ -26,11 +26,11 @@ struct SSRTData {
     vec3 view_dir;
     vec3 eye_pos;
 };
-layout(set=SSRT_DATA_BINDGROUP, binding=0)
-uniform SSRTDataUniform {
-    SSRTData ssrt_data_uniform;
+layout(push_constant )
+uniform PushConstants  {
+    SSRTData ssrt;
 };
-SSRTData ssrt;
+// SSRTData ssrt;
 
 layout(set=DEPTH_LOD_BINDGROUP, binding=0)
 uniform texture2D depth_lod[];
@@ -210,7 +210,7 @@ bool test_hit(vec3 p, int level){
     }
     return false;
 }
-#define SSRT_MIPMAP
+// #define SSRT_MIPMAP
 #ifdef SSRT_MIPMAP
 bool trace(const in SSTraceRecord record, inout HitRecord hit, inout vec3 debug){
     ScreenSpaceRay ray = create_ss_ray(record.ray, record.tmax);
@@ -293,7 +293,7 @@ bool trace(const in SSTraceRecord record, inout HitRecord hit, inout vec3 debug)
         //     t += march_step;
         //     continue;
         // }
-        if(any(greaterThanEqual(pixel, ivec2(image_width, image_height))))
+        if(any(greaterThanEqual(pixel, ivec2(ssrt.image_width, ssrt.image_height))))
             return false;
         if(any(lessThan(pixel, ivec2(0))))
             return false;
@@ -312,5 +312,5 @@ bool trace(const in SSTraceRecord record, inout HitRecord hit, inout vec3 debug)
 #endif
 
 void init_ssrt() {
-    ssrt = ssrt_data_uniform;
+    // ssrt = ssrt_data_uniform;
 }
