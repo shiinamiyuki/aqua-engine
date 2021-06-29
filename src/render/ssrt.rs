@@ -111,7 +111,7 @@ impl DepthQuadTree {
                 let height = height >> lev;
                 Texture::create_color_attachment(
                     device,
-                    &Size(width, height),
+                    &Size::new(width, height),
                     wgpu::TextureFormat::R32Float,
                     "depth quad",
                 )
@@ -303,12 +303,12 @@ impl DepthQuadTree {
             } else {
                 &self.pipeline[1]
             };
-            let size = Size(gbuffer.depth.extent.width, gbuffer.depth.extent.height);
+            let size = Size::new(gbuffer.depth.extent.width, gbuffer.depth.extent.height);
             compute_pass.set_pipeline(pipeline);
             compute_pass.set_bind_group(0, &bind_group, &[]);
             compute_pass.set_push_constants(
                 0,
-                bytemuck::cast_slice(&[size.0, size.1, self.width, self.height, level]),
+                bytemuck::cast_slice(&[size.width, size.height, self.width, self.height, level]),
             );
             compute_pass.dispatch(self.width / 16, self.height / 16, 1);
         }

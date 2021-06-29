@@ -65,7 +65,10 @@ impl App {
             &DeferredShadingPipelineDescriptor { ctx: ctx.clone() },
         );
 
-        let scene = Arc::new(GPUScene::load_scene(Path::new("scenes/room.json"), &ctx.device_ctx));
+        let scene = Arc::new(GPUScene::load_scene(
+            Path::new("scenes/room.json"),
+            &ctx.device_ctx,
+        ));
         App {
             ctx,
             size: window.inner_size(),
@@ -161,7 +164,14 @@ impl App {
         ));
     }
     fn render(&mut self) -> Result<(), wgpu::SwapChainError> {
-        let frame = self.ctx.swap_chain.get_current_frame()?.output;
+        let frame = self
+            .ctx
+            .surface_ctx
+            .as_ref()
+            .unwrap()
+            .swap_chain
+            .get_current_frame()?
+            .output;
 
         let frame_ctx = FrameContext { frame };
         let mut encoder =

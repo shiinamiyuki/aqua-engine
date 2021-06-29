@@ -11,13 +11,6 @@ pub struct Texture {
 
 impl Texture {
     pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float; // 1.
-    pub fn create_depth_texture_from_sc(
-        device: &wgpu::Device,
-        sc_desc: &wgpu::SwapChainDescriptor,
-        label: &str,
-    ) -> Self {
-        Self::create_depth_texture_with_size(&device, &Size(sc_desc.width, sc_desc.height), label)
-    }
 
     pub fn create_color_attachment(
         device: &wgpu::Device,
@@ -26,8 +19,8 @@ impl Texture {
         label: &str,
     ) -> Self {
         let size = wgpu::Extent3d {
-            width: size.0,
-            height: size.1,
+            width: size.width,
+            height: size.height,
             depth_or_array_layers:1,
         };
         let desc = wgpu::TextureDescriptor {
@@ -62,8 +55,8 @@ impl Texture {
     pub fn create_depth_texture_with_size(device: &wgpu::Device, size: &Size, label: &str) -> Self {
         let size = wgpu::Extent3d {
             // 2.
-            width: size.0,  //sc_desc.width,
-            height: size.1, //sc_desc.height,
+            width: size.width,  //sc_desc.width,
+            height: size.height, //sc_desc.height,
             depth_or_array_layers: 1,
         };
         let desc = wgpu::TextureDescriptor {

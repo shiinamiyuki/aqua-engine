@@ -1,16 +1,22 @@
 use wgpu::SwapChainTexture;
 use winit::window::Window;
 
+use super::Size;
+
 pub struct DeviceContext {
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
 }
-pub struct RenderContext {
-    pub device_ctx: DeviceContext,
+
+pub struct SurfaceContext {
     pub surface: wgpu::Surface,
     pub sc_desc: wgpu::SwapChainDescriptor,
     pub swap_chain: wgpu::SwapChain,
-    pub size: winit::dpi::PhysicalSize<u32>,
+}
+pub struct RenderContext {
+    pub device_ctx: DeviceContext,
+    pub surface_ctx: Option<SurfaceContext>,
+    pub size: Size,
 }
 
 impl RenderContext {
@@ -64,7 +70,7 @@ impl RenderContext {
                         max_push_constant_size: 128,
                         max_storage_buffer_binding_size: 1920 * 1080 * 16,
                         max_uniform_buffer_binding_size: 1920 * 1080 * 16,
-                        max_bind_groups:8,
+                        max_bind_groups: 8,
                         ..wgpu::Limits::default()
                     },
                     label: None,
@@ -83,21 +89,29 @@ impl RenderContext {
         let swap_chain = device.create_swap_chain(&surface, &sc_desc);
         Self {
             device_ctx: DeviceContext { device, queue },
-            surface,
-            sc_desc,
-            swap_chain,
-
-            size,
+            surface_ctx: Some(SurfaceContext {
+                surface,
+                sc_desc,
+                swap_chain,
+            }),
+            size: Size {
+                width: size.width,
+                height: size.height,
+            },
         }
     }
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
-        self.size = new_size;
-        self.sc_desc.width = new_size.width;
-        self.sc_desc.height = new_size.height;
-        self.swap_chain = self
+        self.size = Size {
+            width: new_size.width,
+            height: new_size.height,
+        };
+        let surface_ctx = self.surface_ctx.as_mut().unwrap();
+        surface_ctx.sc_desc.width = new_size.width;
+        surface_ctx.sc_desc.height = new_size.height;
+        surface_ctx.swap_chain = self
             .device_ctx
             .device
-            .create_swap_chain(&self.surface, &self.sc_desc);
+            .create_swap_chain(&surface_ctx.surface, &surface_ctx.sc_desc);
     }
 }
 

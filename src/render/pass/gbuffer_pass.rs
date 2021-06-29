@@ -39,7 +39,7 @@ impl RenderPass for GBufferPass {
         let vs_src = std::fs::read_to_string("src/shaders/gbuffer.vert").unwrap();
         let fs_src = std::fs::read_to_string("src/shaders/gbuffer.frag").unwrap();
         let mut compiler = shaderc::Compiler::new().unwrap();
-        let size = Size(ctx.size.width, ctx.size.height);
+        let size = Size::new(ctx.size.width, ctx.size.height);
         let vs_spirv = compiler
             .compile_into_spirv(
                 &vs_src,
@@ -99,7 +99,6 @@ impl RenderPass for GBufferPass {
                 bind_group_layouts: &[&bind_group_layout0],
                 push_constant_ranges: &[],
             });
-        let sc_desc = &ctx.sc_desc;
         let gbuffer_formats = GBuffer::rt_formats(true);
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("GBuferPass Render Pipeline"),

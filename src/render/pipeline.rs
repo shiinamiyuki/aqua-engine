@@ -45,7 +45,7 @@ impl RenderPipeline for DeferredShadingPipeline {
     type Descriptor = DeferredShadingPipelineDescriptor;
     fn create_pipeline(desc: &Self::Descriptor) -> Self {
         let ctx = &desc.ctx;
-        let gbuffer = GBuffer::new(&ctx.device_ctx, &Size(ctx.size.width, ctx.size.height));
+        let gbuffer = GBuffer::new(&ctx.device_ctx, &Size::new(ctx.size.width, ctx.size.height));
         let cubemap_res = 512;
         let shadow_cube_map = Arc::new(CubeMap::create_cubemap(
             &ctx.device_ctx.device,
@@ -56,7 +56,7 @@ impl RenderPipeline for DeferredShadingPipeline {
         ));
         let color_buffer = Arc::new(Texture::create_color_attachment(
             &ctx.device_ctx.device,
-            &Size(ctx.sc_desc.width, ctx.sc_desc.height),
+            &ctx.size,
             wgpu::TextureFormat::Rgba32Float,
             "deferred.color",
         ));

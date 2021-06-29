@@ -293,7 +293,7 @@ bool trace(const in SSTraceRecord record, inout HitRecord hit, inout vec3 debug)
         //     t += march_step;
         //     continue;
         // }
-        if(any(greaterThanEqual(pixel, ivec2(image_width, image_height))))
+        if(any(greaterThanEqual(pixel, ivec2(ssrt.image_width, ssrt.image_height))))
             return false;
         if(any(lessThan(pixel, ivec2(0))))
             return false;

@@ -120,7 +120,7 @@ impl RenderPass for ShadowPass {
         let cubemap_res = desc.cubemap_res;
         let depth = Texture::create_depth_texture_with_size(
             device,
-            &Size(cubemap_res, cubemap_res),
+            &Size::new(cubemap_res, cubemap_res),
             "shadow.depth",
         );
 
