@@ -5,8 +5,8 @@ use arukas::{
     glm,
     render::{
         fovx_to_fovy, pipeline, Camera, DeferredShadingParams, DeferredShadingPipelineDescriptor,
-        FrameContext, GPUScene, Mesh, OribitalCamera, Perspective, PointLight, RenderContext,
-        RenderPass, RenderPipeline,
+        FrameContext, GBufferOptions, GPUScene, Mesh, OribitalCamera, Perspective, PointLight,
+        RenderContext, RenderPass, RenderPipeline,
     },
 };
 
@@ -30,6 +30,7 @@ struct App {
     deferred_shading_pipeline: Option<pipeline::DeferredShadingPipeline>,
     last_cursor_pos: Option<winit::dpi::PhysicalPosition<f64>>,
     is_key_down: bool,
+    gbuffer_options: GBufferOptions,
 }
 impl App {
     fn new(window: &Window) -> App {
@@ -61,8 +62,15 @@ impl App {
             phi: 0.0,
             theta: glm::pi::<f32>() * 0.5,
         };
+        let gbuffer_options = GBufferOptions {
+            hdr: true,
+            aov: true,
+        };
         let deferred_shading_pipeline = pipeline::DeferredShadingPipeline::create_pipeline(
-            &DeferredShadingPipelineDescriptor { ctx: ctx.clone() },
+            &DeferredShadingPipelineDescriptor {
+                ctx: ctx.clone(),
+                gbuffer_options,
+            },
         );
 
         let scene = Arc::new(GPUScene::load_scene(
@@ -77,6 +85,7 @@ impl App {
             deferred_shading_pipeline: Some(deferred_shading_pipeline),
             last_cursor_pos: None,
             is_key_down: false,
+            gbuffer_options,
         }
     }
     fn input(&mut self, event: &WindowEvent) -> bool {
@@ -160,6 +169,7 @@ impl App {
         self.deferred_shading_pipeline = Some(pipeline::DeferredShadingPipeline::create_pipeline(
             &DeferredShadingPipelineDescriptor {
                 ctx: self.ctx.clone(),
+                gbuffer_options: self.gbuffer_options,
             },
         ));
     }

@@ -119,8 +119,10 @@ impl DepthQuadTree {
             .collect();
         let cs = compile_shader_file(
             Path::new("src/shaders/ssgi.zquad.comp"),
+            "ssgi.zquad.comp",
             shaderc::ShaderKind::Compute,
             &device,
+            None
         )
         .unwrap();
         let zquad_layout0 = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {

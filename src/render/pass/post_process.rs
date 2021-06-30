@@ -29,14 +29,18 @@ impl RenderPass for PostProcessPass {
         let device = &ctx.device_ctx.device;
         let fs = compile_shader_file(
             Path::new("src/shaders/deferred.frag"),
+            "deferred.frag",
             shaderc::ShaderKind::Fragment,
             &ctx.device_ctx.device,
+            None,
         )
         .unwrap();
         let vs = compile_shader_file(
             Path::new("src/shaders/deferred.vert"),
+            "deferred.vert",
             shaderc::ShaderKind::Vertex,
             &ctx.device_ctx.device,
+            None,
         )
         .unwrap();
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor::default());

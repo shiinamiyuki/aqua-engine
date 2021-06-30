@@ -17,6 +17,7 @@ layout(location=2) out vec3 v_pos;
 layout(location=3) out float v_metallic;
 layout(location=4) out float v_roughness;
 
+
 layout(set=0, binding=0)
 uniform UniformViewProj {
     mat4 view;

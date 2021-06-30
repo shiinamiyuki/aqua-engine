@@ -37,14 +37,18 @@ impl RenderPass for ShadowPass {
         let device = &ctx.device_ctx.device;
         let fs = compile_shader_file(
             Path::new("src/shaders/shadow.frag"),
+            "shadow.frag",
             shaderc::ShaderKind::Fragment,
             &ctx.device_ctx.device,
+            None,
         )
         .unwrap();
         let vs = compile_shader_file(
             Path::new("src/shaders/shadow.vert"),
+            "shadow.vert",
             shaderc::ShaderKind::Vertex,
             &ctx.device_ctx.device,
+            None,
         )
         .unwrap();
         let light_vp = Buffer::new_uniform_buffer(

@@ -2,10 +2,7 @@ use std::{path::Path, sync::Arc};
 
 use wgpu::util::DeviceExt;
 
-use crate::render::{
-    compile_shader_file, Buffer, BufferData, Camera, CubeMap, FrameContext, GPUScene, PointLight,
-    PointLightData, RenderContext, RenderPass, Size, Texture, UniformViewProjection, Vertex,
-};
+use crate::render::{Buffer, BufferData, Camera, CubeMap, FrameContext, GBufferOptions, GPUScene, PointLight, PointLightData, RenderContext, RenderPass, Size, Texture, UniformViewProjection, Vertex, compile_shader_file};
 use crate::render::GBuffer;
 use super::{
     ComputePass, GBufferPass, GBufferPassParams, ShadowPass,
@@ -22,6 +19,7 @@ pub struct ShadowMapPass {
 }
 pub struct ShadowMapPassDescriptor {
     pub ctx: Arc<RenderContext>,
+    pub gbuffer_options:GBufferOptions,
 }
 pub struct ShadowMapPassNode{}
 pub struct ShadowMapPassParams {
@@ -39,8 +37,10 @@ impl ComputePass for ShadowMapPass {
         let device = &ctx.device_ctx.device;
         let cs = compile_shader_file(
             Path::new("src/shaders/shadow_map.comp"),
+            "shadow_map",
             shaderc::ShaderKind::Compute,
             &ctx.device_ctx.device,
+            None
         )
         .unwrap();
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -94,7 +94,7 @@ impl ComputePass for ShadowMapPass {
                     label: Some("shadow_map.pipeline.layout"),
                     bind_group_layouts: &[
                         &bind_group_layout,
-                        &GBuffer::bind_group_layout(&ctx.device_ctx, true),
+                        &GBuffer::bind_group_layout(&ctx.device_ctx, &desc.gbuffer_options),
                     ],
                     push_constant_ranges: &[wgpu::PushConstantRange {
                         stages: wgpu::ShaderStage::COMPUTE,

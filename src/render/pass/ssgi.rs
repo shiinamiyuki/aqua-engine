@@ -3,6 +3,7 @@ use std::{num::NonZeroU32, path::Path, sync::Arc};
 use crate::glm;
 use crate::render::DepthQuadTree;
 use crate::render::GBuffer;
+use crate::render::GBufferOptions;
 use crate::render::SSRTBindGroup;
 use crate::render::SSRTUniform;
 use crate::{
@@ -15,6 +16,7 @@ use crate::{
 };
 use nalgebra_glm::Vec3;
 use rand::Rng;
+use shaderc::CompileOptions;
 use wgpu::util::DeviceExt;
 pub struct SSGIPass {
     pub pipeline: wgpu::ComputePipeline,
@@ -42,6 +44,7 @@ pub struct SSGIPassParams {
 }
 pub struct SSGIPassDescriptor {
     pub ctx: Arc<RenderContext>,
+    pub gbuffer_options: GBufferOptions,
 }
 
 pub struct SSGIPassNode {}
@@ -51,12 +54,27 @@ impl RenderPass for SSGIPass {
     fn create_pass(desc: &Self::Descriptor) -> Self {
         let ctx = &desc.ctx;
         let device = &ctx.device_ctx.device;
-        let cs = compile_shader_file(
-            Path::new("src/shaders/ssgi.trace.comp"),
-            shaderc::ShaderKind::Compute,
-            &ctx.device_ctx.device,
-        )
-        .unwrap();
+        let cs = if desc.gbuffer_options.aov {
+            let mut options = CompileOptions::new().unwrap();
+            options.add_macro_definition("GBUFFER_AOV", None);
+            compile_shader_file(
+                Path::new("src/shaders/ssgi.trace.comp"),
+                "ssgi.trace-aov",
+                shaderc::ShaderKind::Compute,
+                &ctx.device_ctx.device,
+                Some(&options),
+            )
+            .unwrap()
+        } else {
+            compile_shader_file(
+                Path::new("src/shaders/ssgi.trace.comp"),
+                "ssgi.trace",
+                shaderc::ShaderKind::Compute,
+                &ctx.device_ctx.device,
+                None,
+            )
+            .unwrap()
+        };
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[
                 wgpu::BindGroupLayoutEntry {
@@ -145,7 +163,7 @@ impl RenderPass for SSGIPass {
                     label: Some("ssgi.pipeline.layout"),
                     bind_group_layouts: &[
                         &bind_group_layout,
-                        &GBuffer::bind_group_layout(&ctx.device_ctx, true),
+                        &GBuffer::bind_group_layout(&ctx.device_ctx, &desc.gbuffer_options),
                         &ssrt_bindgroup.layout,
                         &depth_quad_tree.zquad_bind_group_layout,
                         &camera_bind_group_layout,

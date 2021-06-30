@@ -1,10 +1,11 @@
 use std::sync::Arc;
 
 use super::{
-    Camera, ComputePass, CubeMap, FrameContext, GBuffer, GBufferPass, GBufferPassDescriptor,
-    GBufferPassParams, GPUScene, PostProcessPass, PostProcessPassDescriptor, PostProcessPassParams,
-    RenderContext, RenderPass, SSGIPass, SSGIPassDescriptor, SSGIPassParams, ShadowMapPass,
-    ShadowMapPassDescriptor, ShadowPass, ShadowPassDescriptor, ShadowPassParams, Size, Texture,
+    Camera, ComputePass, CubeMap, FrameContext, GBuffer, GBufferOptions, GBufferPass,
+    GBufferPassDescriptor, GBufferPassParams, GPUScene, PostProcessPass, PostProcessPassDescriptor,
+    PostProcessPassParams, RenderContext, RenderPass, SSGIPass, SSGIPassDescriptor, SSGIPassParams,
+    ShadowMapPass, ShadowMapPassDescriptor, ShadowPass, ShadowPassDescriptor, ShadowPassParams,
+    Size, Texture,
 };
 
 pub trait RenderPipeline {
@@ -21,6 +22,7 @@ pub trait RenderPipeline {
 
 pub struct DeferredShadingPipelineDescriptor {
     pub ctx: Arc<RenderContext>,
+    pub gbuffer_options: GBufferOptions,
 }
 
 pub struct DeferredShadingPipeline {
@@ -45,7 +47,11 @@ impl RenderPipeline for DeferredShadingPipeline {
     type Descriptor = DeferredShadingPipelineDescriptor;
     fn create_pipeline(desc: &Self::Descriptor) -> Self {
         let ctx = &desc.ctx;
-        let gbuffer = GBuffer::new(&ctx.device_ctx, &Size::new(ctx.size.width, ctx.size.height));
+        let gbuffer = GBuffer::new(
+            &ctx.device_ctx,
+            &Size::new(ctx.size.width, ctx.size.height),
+            &desc.gbuffer_options,
+        );
         let cubemap_res = 512;
         let shadow_cube_map = Arc::new(CubeMap::create_cubemap(
             &ctx.device_ctx.device,
@@ -69,12 +75,19 @@ impl RenderPipeline for DeferredShadingPipeline {
             }),
             shadow_map_pass: ShadowMapPass::create_pass(&ShadowMapPassDescriptor {
                 ctx: ctx.clone(),
+                gbuffer_options: desc.gbuffer_options,
             }),
-            gbuffer_pass: GBufferPass::create_pass(&GBufferPassDescriptor { ctx: ctx.clone() }),
+            gbuffer_pass: GBufferPass::create_pass(&GBufferPassDescriptor {
+                ctx: ctx.clone(),
+                options: desc.gbuffer_options,
+            }),
             post_process_pass: PostProcessPass::create_pass(&PostProcessPassDescriptor {
                 ctx: ctx.clone(),
             }),
-            ssgi_pass: SSGIPass::create_pass(&SSGIPassDescriptor { ctx: ctx.clone() }),
+            ssgi_pass: SSGIPass::create_pass(&SSGIPassDescriptor {
+                ctx: ctx.clone(),
+                gbuffer_options: desc.gbuffer_options,
+            }),
             ctx: ctx.clone(),
             color_buffer,
         }

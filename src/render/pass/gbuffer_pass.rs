@@ -1,11 +1,15 @@
 use std::{
     cell::{Cell, RefCell},
+    path::Path,
     sync::Arc,
+    usize,
 };
 
+use shaderc::CompileOptions;
+
 use crate::render::{
-    Buffer, BufferData, Camera, DeviceContext, FrameContext, GBuffer, GPUMesh, GPUScene,
-    RenderContext, Size, Texture, UniformViewProjection, Vertex,
+    compile_shader_file, Buffer, BufferData, Camera, DeviceContext, FrameContext, GBuffer,
+    GBufferOptions, GPUMesh, GPUScene, RenderContext, Size, Texture, UniformViewProjection, Vertex,
 };
 
 use super::RenderPass;
@@ -24,6 +28,7 @@ pub struct GBufferPassParams {
 }
 pub struct GBufferPassDescriptor {
     pub ctx: Arc<RenderContext>,
+    pub options: GBufferOptions,
 }
 
 pub struct GBufferPassNode {
@@ -36,40 +41,87 @@ impl RenderPass for GBufferPass {
     fn create_pass(desc: &Self::Descriptor) -> Self {
         let ctx = &desc.ctx;
         let device = &ctx.device_ctx.device;
-        let vs_src = std::fs::read_to_string("src/shaders/gbuffer.vert").unwrap();
-        let fs_src = std::fs::read_to_string("src/shaders/gbuffer.frag").unwrap();
-        let mut compiler = shaderc::Compiler::new().unwrap();
-        let size = Size::new(ctx.size.width, ctx.size.height);
-        let vs_spirv = compiler
-            .compile_into_spirv(
-                &vs_src,
-                shaderc::ShaderKind::Vertex,
-                "gbuffer.vert",
-                "main",
-                None,
-            )
-            .unwrap();
-        let fs_spirv = compiler
-            .compile_into_spirv(
-                &fs_src,
-                shaderc::ShaderKind::Fragment,
-                "gbuffer.frag",
-                "main",
-                None,
-            )
-            .unwrap();
-        let vs_data = wgpu::util::make_spirv(vs_spirv.as_binary_u8());
-        let fs_data = wgpu::util::make_spirv(fs_spirv.as_binary_u8());
-        let vs_module = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
-            label: Some("GBufferPass Vertex Shader"),
-            source: vs_data,
-            flags: wgpu::ShaderFlags::default(),
-        });
-        let fs_module = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
-            label: Some("GBufferPass Fragment Shader"),
-            source: fs_data,
-            flags: wgpu::ShaderFlags::default(),
-        });
+        let (vs, fs) = if desc.options.aov {
+            let mut options = CompileOptions::new().unwrap();
+            options.add_macro_definition("GBUFFER_AOV", None);
+            let vs = {
+                compile_shader_file(
+                    Path::new("src/shaders/gbuffer.vert"),
+                    "gbuffer_hdr_aov.vert",
+                    shaderc::ShaderKind::Vertex,
+                    device,
+                    Some(&options),
+                )
+                .unwrap()
+            };
+            let fs = {
+                compile_shader_file(
+                    Path::new("src/shaders/gbuffer.frag"),
+                    "gbuffer_hdr_aov.frag",
+                    shaderc::ShaderKind::Fragment,
+                    device,
+                    Some(&options),
+                )
+                .unwrap()
+            };
+            (vs, fs)
+        } else {
+            let vs = {
+                compile_shader_file(
+                    Path::new("src/shaders/gbuffer.vert"),
+                    "gbuffer_hdr.vert",
+                    shaderc::ShaderKind::Vertex,
+                    device,
+                    None,
+                )
+                .unwrap()
+            };
+            let fs = {
+                compile_shader_file(
+                    Path::new("src/shaders/gbuffer.frag"),
+                    "gbuffer_hdr.frag",
+                    shaderc::ShaderKind::Fragment,
+                    device,
+                    None,
+                )
+                .unwrap()
+            };
+            (vs, fs)
+        };
+        // let vs_src = std::fs::read_to_string("src/shaders/gbuffer.vert").unwrap();
+        // let fs_src = std::fs::read_to_string("src/shaders/gbuffer.frag").unwrap();
+        // let mut compiler = shaderc::Compiler::new().unwrap();
+        // let size = Size::new(ctx.size.width, ctx.size.height);
+        // let vs_spirv = compiler
+        //     .compile_into_spirv(
+        //         &vs_src,
+        //         shaderc::ShaderKind::Vertex,
+        //         "gbuffer.vert",
+        //         "main",
+        //         None,
+        //     )
+        //     .unwrap();
+        // let fs_spirv = compiler
+        //     .compile_into_spirv(
+        //         &fs_src,
+        //         shaderc::ShaderKind::Fragment,
+        //         "gbuffer.frag",
+        //         "main",
+        //         None,
+        //     )
+        //     .unwrap();
+        // let vs_data = wgpu::util::make_spirv(vs_spirv.as_binary_u8());
+        // let fs_data = wgpu::util::make_spirv(fs_spirv.as_binary_u8());
+        // let vs_module = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+        //     label: Some("GBufferPass Vertex Shader"),
+        //     source: vs_data,
+        //     flags: wgpu::ShaderFlags::default(),
+        // });
+        // let fs_module = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+        //     label: Some("GBufferPass Fragment Shader"),
+        //     source: fs_data,
+        //     flags: wgpu::ShaderFlags::default(),
+        // });
         let camera_uniform = Buffer::<UniformViewProjection>::new_uniform_buffer(
             &ctx.device_ctx,
             &[UniformViewProjection::default()],
@@ -99,36 +151,27 @@ impl RenderPass for GBufferPass {
                 bind_group_layouts: &[&bind_group_layout0],
                 push_constant_ranges: &[],
             });
-        let gbuffer_formats = GBuffer::rt_formats(true);
+        let gbuffer_formats = GBuffer::rt_formats(&desc.options);
+        let render_targets: Vec<_> = (0..gbuffer_formats.len())
+            .map(|i| wgpu::ColorTargetState {
+                format: gbuffer_formats[i],
+                blend: None,
+                write_mask: wgpu::ColorWrite::ALL,
+            })
+            .collect();
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("GBuferPass Render Pipeline"),
             layout: Some(&render_pipeline_layout),
             vertex: wgpu::VertexState {
-                module: &vs_module,
+                module: &vs,
                 entry_point: "main",        // 1.
                 buffers: &[Vertex::desc()], // 2.
             },
             fragment: Some(wgpu::FragmentState {
                 // 3.
-                module: &fs_module,
+                module: &fs,
                 entry_point: "main",
-                targets: &[
-                    wgpu::ColorTargetState {
-                        format: gbuffer_formats[0],
-                        blend: None,
-                        write_mask: wgpu::ColorWrite::ALL,
-                    },
-                    wgpu::ColorTargetState {
-                        format: gbuffer_formats[1],
-                        blend: None,
-                        write_mask: wgpu::ColorWrite::ALL,
-                    },
-                    wgpu::ColorTargetState {
-                        format: gbuffer_formats[2],
-                        blend: None,
-                        write_mask: wgpu::ColorWrite::ALL,
-                    },
-                ],
+                targets: render_targets.as_slice(),
             }),
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleList, // 1.
@@ -172,9 +215,9 @@ impl RenderPass for GBufferPass {
             )],
         );
 
-        let attachment_descs = [
-            wgpu::RenderPassColorAttachment {
-                view: &params.gbuffer.render_targets[0].view,
+        let attachment_descs: Vec<_> = (0..params.gbuffer.num_render_targets())
+            .map(|i| wgpu::RenderPassColorAttachment {
+                view: &params.gbuffer.render_targets[i as usize].view,
                 resolve_target: None,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(wgpu::Color {
@@ -185,37 +228,11 @@ impl RenderPass for GBufferPass {
                     }),
                     store: true,
                 },
-            },
-            wgpu::RenderPassColorAttachment {
-                view: &params.gbuffer.render_targets[1].view,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color {
-                        r: 0.0,
-                        g: 0.0,
-                        b: 0.0,
-                        a: 0.0,
-                    }),
-                    store: true,
-                },
-            },
-            wgpu::RenderPassColorAttachment {
-                view: &params.gbuffer.render_targets[2].view,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color {
-                        r: 0.0,
-                        g: 0.0,
-                        b: 0.0,
-                        a: 0.0,
-                    }),
-                    store: true,
-                },
-            },
-        ];
+            })
+            .collect();
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("Render Pass"),
-            color_attachments: &attachment_descs[..],
+            color_attachments: attachment_descs.as_slice(),
             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                 view: &params.gbuffer.depth.view,
                 depth_ops: Some(wgpu::Operations {
