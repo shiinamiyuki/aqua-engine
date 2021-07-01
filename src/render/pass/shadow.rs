@@ -1,3 +1,4 @@
+use std::mem::size_of;
 use std::{path::Path, sync::Arc};
 
 use render::{opengl_to_wgpu_matrix, LookAtCamera, Perspective};
@@ -88,7 +89,15 @@ impl RenderPass for ShadowPass {
             vertex: wgpu::VertexState {
                 module: &vs,
                 entry_point: "main",
-                buffers: &[Vertex::desc()],
+                buffers: &[wgpu::VertexBufferLayout {
+                    array_stride: size_of::<Vertex<3>>() as wgpu::BufferAddress,
+                    step_mode: wgpu::InputStepMode::Vertex,
+                    attributes: &[wgpu::VertexAttribute {
+                        offset: 0,
+                        shader_location: 0,
+                        format: wgpu::VertexFormat::Float32x3,
+                    }],
+                }],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &fs,

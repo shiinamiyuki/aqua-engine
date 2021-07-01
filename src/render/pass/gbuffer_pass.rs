@@ -1,5 +1,6 @@
 use std::{
     cell::{Cell, RefCell},
+    mem::size_of,
     path::Path,
     sync::Arc,
     usize,
@@ -164,8 +165,27 @@ impl RenderPass for GBufferPass {
             layout: Some(&render_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &vs,
-                entry_point: "main",        // 1.
-                buffers: &[Vertex::desc()], // 2.
+                entry_point: "main", // 1.
+                buffers: &[
+                    wgpu::VertexBufferLayout {
+                        array_stride: size_of::<Vertex<3>>() as wgpu::BufferAddress,
+                        step_mode: wgpu::InputStepMode::Vertex,
+                        attributes: &[wgpu::VertexAttribute {
+                            offset: 0,
+                            shader_location: 0,
+                            format: wgpu::VertexFormat::Float32x3,
+                        }],
+                    },
+                    wgpu::VertexBufferLayout {
+                        array_stride: size_of::<Vertex<3>>() as wgpu::BufferAddress,
+                        step_mode: wgpu::InputStepMode::Vertex,
+                        attributes: &[wgpu::VertexAttribute {
+                            offset: 0,
+                            shader_location: 1,
+                            format: wgpu::VertexFormat::Float32x3,
+                        }],
+                    },
+                ], // 2.
             },
             fragment: Some(wgpu::FragmentState {
                 // 3.
@@ -246,11 +266,8 @@ impl RenderPass for GBufferPass {
 
         render_pass.set_bind_group(0, &self.bind_group0, &[]);
 
-        for m in &params.scene.meshes {
-            render_pass.set_vertex_buffer(0, m.vertex_buffer.slice(..));
-            render_pass.set_index_buffer(m.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-            render_pass.draw_indexed(0..m.num_indices, 0, 0..1); // 2.
-        }
+        params.scene.draw(&mut render_pass);
+
         GBufferPassNode {
             gbuffer: params.gbuffer.clone(),
         }

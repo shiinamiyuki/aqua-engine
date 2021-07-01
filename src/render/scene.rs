@@ -89,9 +89,10 @@ impl GPUScene {
         'a: 'b,
     {
         for m in &self.meshes {
-            render_pass.set_vertex_buffer(0, m.vertex_buffer.slice(..));
-            render_pass.set_index_buffer(m.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-            render_pass.draw_indexed(0..m.num_indices, 0, 0..1);
+            m.render(render_pass);
+            // render_pass.set_vertex_buffer(0, m.vertex_buffer.slice(..));
+            // render_pass.set_index_buffer(m.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+            // render_pass.draw_indexed(0..m.num_indices, 0, 0..1);
         }
     }
 }
