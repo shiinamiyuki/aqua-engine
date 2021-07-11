@@ -293,7 +293,7 @@ impl Base {
                 .unwrap_or(vk::PresentModeKHR::FIFO);
             let swapchain_loader = Swapchain::new(&instance, &*device);
             let swapchain_loader = vkw::SwapChainLoader {
-                inner: swapchain_loader,
+                handle: swapchain_loader,
                 allocation_callbacks: None,
             };
             let swapchain_create_info = vk::SwapchainCreateInfoKHR::builder()
@@ -314,8 +314,8 @@ impl Base {
                 .create_swapchain(&swapchain_create_info, None)
                 .unwrap();
             let swapchain = vkw::SwapChain {
-                inner: swapchain,
-                swapchain: swapchain_loader.inner.clone(),
+                handle: swapchain,
+                swapchain: swapchain_loader.handle.clone(),
                 allocation_callbacks: None,
             };
             let pool_create_info = vk::CommandPoolCreateInfo::builder()
@@ -336,7 +336,7 @@ impl Base {
             let draw_command_buffer = command_buffers[1];
 
             let present_images = swapchain_loader.get_swapchain_images(*swapchain).unwrap();
-            let present_image_views: Vec<vk::ImageView> = present_images
+            let present_image_views: Vec<vkw::ImageView> = present_images
                 .iter()
                 .map(|&image| {
                     let create_view_info = vk::ImageViewCreateInfo::builder()
@@ -356,7 +356,7 @@ impl Base {
                             layer_count: 1,
                         })
                         .image(image);
-                    device.create_image_view(&create_view_info, None).unwrap()
+                    vkw::ImageView::new(&device, &create_view_info, None).unwrap()
                 })
                 .collect();
             let device_memory_properties = instance.get_physical_device_memory_properties(pdevice);
@@ -409,7 +409,7 @@ impl Base {
             record_submit_commandbuffer(
                 &device,
                 setup_command_buffer,
-                setup_commands_reuse_fence.inner,
+                setup_commands_reuse_fence.handle,
                 present_queue,
                 &[],
                 &[],
