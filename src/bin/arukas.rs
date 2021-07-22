@@ -133,8 +133,7 @@ pub struct Base {
     entry: ash::Entry,
     device: vkw::Device,
     instance: ash::Instance,
-    swapchain_loader: vkw::SwapChainLoader,
-    swapchain: vkw::SwapChain,
+    swapchain: vkw::Swapchain,
     pub window: winit::window::Window,
     pub events_loop: winit::event_loop::EventLoop<()>,
 
@@ -252,9 +251,14 @@ impl Base {
                 .enabled_extension_names(&device_extension_names_raw)
                 .enabled_features(&features);
 
-            let device =
-                vkw::Device::new(&instance, pdevice, &device_create_info.build(), None).unwrap();
-            let present_queue = device.get_device_queue(queue_family_index as u32, 0);
+            let device = instance
+                .create_device(pdevice, &device_create_info.build(), None)
+                .unwrap();
+            let context = vkw::Context::new(instance, device, None);
+            let device = vkw::Device::from_context(context);
+            let present_queue = device
+                .handle()
+                .get_device_queue(queue_family_index as u32, 0);
 
             let surface_format = surface_loader
                 .get_physical_device_surface_formats(pdevice, surface)
@@ -291,11 +295,6 @@ impl Base {
                 .cloned()
                 .find(|&mode| mode == vk::PresentModeKHR::MAILBOX)
                 .unwrap_or(vk::PresentModeKHR::FIFO);
-            let swapchain_loader = Swapchain::new(&instance, &*device);
-            let swapchain_loader = vkw::SwapChainLoader {
-                handle: swapchain_loader,
-                allocation_callbacks: None,
-            };
             let swapchain_create_info = vk::SwapchainCreateInfoKHR::builder()
                 .surface(surface)
                 .min_image_count(desired_image_count)
@@ -310,23 +309,18 @@ impl Base {
                 .clipped(true)
                 .image_array_layers(1);
 
-            let swapchain = swapchain_loader
-                .create_swapchain(&swapchain_create_info, None)
-                .unwrap();
-            let swapchain = vkw::SwapChain {
-                handle: swapchain,
-                swapchain: swapchain_loader.handle.clone(),
-                allocation_callbacks: None,
-            };
+            let swapchain = device.create_swapchain(&swapchain_create_info);
             let pool_create_info = vk::CommandPoolCreateInfo::builder()
                 .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
                 .queue_family_index(queue_family_index);
 
-            let pool = device.create_command_pool(&pool_create_info, None).unwrap();
+            let pool = device
+                .create_command_pool(&pool_create_info)
+                .unwrap();
 
             let command_buffer_allocate_info = vk::CommandBufferAllocateInfo::builder()
                 .command_buffer_count(2)
-                .command_pool(pool)
+                .command_pool(pool.handle())
                 .level(vk::CommandBufferLevel::PRIMARY);
 
             let command_buffers = device
