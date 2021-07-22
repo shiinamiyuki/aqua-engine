@@ -20,8 +20,6 @@ use winit::{
 
 use ash::vk;
 
-use arukas::core::vkw;
-
 unsafe extern "system" fn vulkan_debug_callback(
     message_severity: vk::DebugUtilsMessageSeverityFlagsEXT,
     message_type: vk::DebugUtilsMessageTypeFlagsEXT,
@@ -131,18 +129,18 @@ pub fn record_submit_commandbuffer<F: FnOnce(&ash::Device, vk::CommandBuffer)>(
 
 pub struct Base {
     entry: ash::Entry,
-    device: vkw::Device,
+    device: ash::Device,
     instance: ash::Instance,
-    swapchain_loader: vkw::SwapChainLoader,
-    swapchain: vkw::SwapChain,
+    swapchain_loader: ash::extensions::khr::Swapchain,
+    swapchain: vk::SwapchainKHR,
     pub window: winit::window::Window,
     pub events_loop: winit::event_loop::EventLoop<()>,
 
-    pub present_complete_semaphore: vkw::Semaphore,
-    pub rendering_complete_semaphore: vkw::Semaphore,
+    pub present_complete_semaphore: vk::Semaphore,
+    pub rendering_complete_semaphore: vk::Semaphore,
 
-    pub draw_commands_reuse_fence: vkw::Fence,
-    pub setup_commands_reuse_fence: vkw::Fence,
+    pub draw_commands_reuse_fence: vk::Fence,
+    pub setup_commands_reuse_fence: vk::Fence,
 }
 impl Base {
     fn new(width: u32, height: u32) -> Self {
@@ -252,8 +250,9 @@ impl Base {
                 .enabled_extension_names(&device_extension_names_raw)
                 .enabled_features(&features);
 
-            let device =
-                vkw::Device::new(&instance, pdevice, &device_create_info.build(), None).unwrap();
+            let device = instance
+                .create_device(pdevice, &device_create_info, None)
+                .unwrap();
             let present_queue = device.get_device_queue(queue_family_index as u32, 0);
 
             let surface_format = surface_loader
@@ -291,11 +290,7 @@ impl Base {
                 .cloned()
                 .find(|&mode| mode == vk::PresentModeKHR::MAILBOX)
                 .unwrap_or(vk::PresentModeKHR::FIFO);
-            let swapchain_loader = Swapchain::new(&instance, &*device);
-            let swapchain_loader = vkw::SwapChainLoader {
-                inner: swapchain_loader,
-                allocation_callbacks: None,
-            };
+            let swapchain_loader = Swapchain::new(&instance, &device);
             let swapchain_create_info = vk::SwapchainCreateInfoKHR::builder()
                 .surface(surface)
                 .min_image_count(desired_image_count)
@@ -313,11 +308,9 @@ impl Base {
             let swapchain = swapchain_loader
                 .create_swapchain(&swapchain_create_info, None)
                 .unwrap();
-            let swapchain = vkw::SwapChain {
-                inner: swapchain,
-                swapchain: swapchain_loader.inner.clone(),
-                allocation_callbacks: None,
-            };
+            let swapchain = swapchain_loader
+                .create_swapchain(&swapchain_create_info, None)
+                .unwrap();
             let pool_create_info = vk::CommandPoolCreateInfo::builder()
                 .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
                 .queue_family_index(queue_family_index);
@@ -335,7 +328,7 @@ impl Base {
             let setup_command_buffer = command_buffers[0];
             let draw_command_buffer = command_buffers[1];
 
-            let present_images = swapchain_loader.get_swapchain_images(*swapchain).unwrap();
+            let present_images = swapchain_loader.get_swapchain_images(swapchain).unwrap();
             let present_image_views: Vec<vk::ImageView> = present_images
                 .iter()
                 .map(|&image| {
@@ -400,16 +393,13 @@ impl Base {
                 .flags(vk::FenceCreateFlags::SIGNALED)
                 .build();
 
-            let draw_commands_reuse_fence =
-                vkw::Fence::new(&device, &fence_create_info, None).unwrap();
+            let draw_commands_reuse_fence = device.create_fence(&fence_create_info, None).unwrap();
 
-            let setup_commands_reuse_fence =
-                vkw::Fence::new(&device, &fence_create_info, None).unwrap();
-
+            let setup_commands_reuse_fence = device.create_fence(&fence_create_info, None).unwrap();
             record_submit_commandbuffer(
                 &device,
                 setup_command_buffer,
-                setup_commands_reuse_fence.inner,
+                setup_commands_reuse_fence,
                 present_queue,
                 &[],
                 &[],
@@ -461,10 +451,12 @@ impl Base {
 
             let semaphore_create_info = vk::SemaphoreCreateInfo::default();
 
-            let present_complete_semaphore =
-                vkw::Semaphore::new(&device, &semaphore_create_info, None).unwrap();
-            let rendering_complete_semaphore =
-                vkw::Semaphore::new(&device, &semaphore_create_info, None).unwrap();
+            let present_complete_semaphore = device
+                .create_semaphore(&semaphore_create_info, None)
+                .unwrap();
+            let rendering_complete_semaphore = device
+                .create_semaphore(&semaphore_create_info, None)
+                .unwrap();
             Self {
                 device,
                 instance,
@@ -478,6 +470,35 @@ impl Base {
                 draw_commands_reuse_fence,
                 setup_commands_reuse_fence,
             }
+        }
+    }
+}
+impl Drop for Base {
+    fn drop(&mut self) {
+        unsafe {
+            self.device.device_wait_idle().unwrap();
+            self.device
+                .destroy_semaphore(self.present_complete_semaphore, None);
+            self.device
+                .destroy_semaphore(self.rendering_complete_semaphore, None);
+            self.device
+                .destroy_fence(self.draw_commands_reuse_fence, None);
+            self.device
+                .destroy_fence(self.setup_commands_reuse_fence, None);
+            // self.device.free_memory(self.depth_image_memory, None);
+            // self.device.destroy_image_view(self.depth_image_view, None);
+            // self.device.destroy_image(self.depth_image, None);
+            // for &image_view in self.present_image_views.iter() {
+                // self.device.destroy_image_view(image_view, None);
+            // }
+            // self.device.destroy_command_pool(self.pool, None);
+            self.swapchain_loader
+                .destroy_swapchain(self.swapchain, None);
+            self.device.destroy_device(None);
+            // self.surface_loader.destroy_surface(self.surface, None);
+            // self.debug_utils_loader
+                // .destroy_debug_utils_messenger(self.debug_call_back, None);
+            self.instance.destroy_instance(None);
         }
     }
 }
