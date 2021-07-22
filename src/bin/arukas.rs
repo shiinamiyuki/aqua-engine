@@ -133,7 +133,8 @@ pub struct Base {
     entry: ash::Entry,
     device: vkw::Device,
     instance: ash::Instance,
-    swapchain: vkw::Swapchain,
+    swapchain_loader: vkw::SwapChainLoader,
+    swapchain: vkw::SwapChain,
     pub window: winit::window::Window,
     pub events_loop: winit::event_loop::EventLoop<()>,
 
@@ -251,14 +252,9 @@ impl Base {
                 .enabled_extension_names(&device_extension_names_raw)
                 .enabled_features(&features);
 
-            let device = instance
-                .create_device(pdevice, &device_create_info.build(), None)
-                .unwrap();
-            let context = vkw::Context::new(instance, device, None);
-            let device = vkw::Device::from_context(context);
-            let present_queue = device
-                .handle()
-                .get_device_queue(queue_family_index as u32, 0);
+            let device =
+                vkw::Device::new(&instance, pdevice, &device_create_info.build(), None).unwrap();
+            let present_queue = device.get_device_queue(queue_family_index as u32, 0);
 
             let surface_format = surface_loader
                 .get_physical_device_surface_formats(pdevice, surface)
@@ -295,6 +291,11 @@ impl Base {
                 .cloned()
                 .find(|&mode| mode == vk::PresentModeKHR::MAILBOX)
                 .unwrap_or(vk::PresentModeKHR::FIFO);
+            let swapchain_loader = Swapchain::new(&instance, &*device);
+            let swapchain_loader = vkw::SwapChainLoader {
+                inner: swapchain_loader,
+                allocation_callbacks: None,
+            };
             let swapchain_create_info = vk::SwapchainCreateInfoKHR::builder()
                 .surface(surface)
                 .min_image_count(desired_image_count)
@@ -309,18 +310,23 @@ impl Base {
                 .clipped(true)
                 .image_array_layers(1);
 
-            let swapchain = device.create_swapchain(&swapchain_create_info);
+            let swapchain = swapchain_loader
+                .create_swapchain(&swapchain_create_info, None)
+                .unwrap();
+            let swapchain = vkw::SwapChain {
+                inner: swapchain,
+                swapchain: swapchain_loader.inner.clone(),
+                allocation_callbacks: None,
+            };
             let pool_create_info = vk::CommandPoolCreateInfo::builder()
                 .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
                 .queue_family_index(queue_family_index);
 
-            let pool = device
-                .create_command_pool(&pool_create_info)
-                .unwrap();
+            let pool = device.create_command_pool(&pool_create_info, None).unwrap();
 
             let command_buffer_allocate_info = vk::CommandBufferAllocateInfo::builder()
                 .command_buffer_count(2)
-                .command_pool(pool.handle())
+                .command_pool(pool)
                 .level(vk::CommandBufferLevel::PRIMARY);
 
             let command_buffers = device
@@ -330,7 +336,7 @@ impl Base {
             let draw_command_buffer = command_buffers[1];
 
             let present_images = swapchain_loader.get_swapchain_images(*swapchain).unwrap();
-            let present_image_views: Vec<vkw::ImageView> = present_images
+            let present_image_views: Vec<vk::ImageView> = present_images
                 .iter()
                 .map(|&image| {
                     let create_view_info = vk::ImageViewCreateInfo::builder()
@@ -350,7 +356,7 @@ impl Base {
                             layer_count: 1,
                         })
                         .image(image);
-                    vkw::ImageView::new(&device, &create_view_info, None).unwrap()
+                    device.create_image_view(&create_view_info, None).unwrap()
                 })
                 .collect();
             let device_memory_properties = instance.get_physical_device_memory_properties(pdevice);
@@ -403,7 +409,7 @@ impl Base {
             record_submit_commandbuffer(
                 &device,
                 setup_command_buffer,
-                setup_commands_reuse_fence.handle,
+                setup_commands_reuse_fence.inner,
                 present_queue,
                 &[],
                 &[],
