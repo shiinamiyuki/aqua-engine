@@ -12,25 +12,19 @@ nalgebra-glm = "0.12.0"
 rayon = "1.5.0"
 image = "0.23.14"
 rand = "0.8.3"
-bson = {version = "1.2.2", features = ["u2i"] }
-serde = "1.*"
+serde = { version = "1.*", features = ["derive"] }
 serde_json = "1.0"
-
-winit = "0.22"
-shaderc = "0.7"
-env_logger = "0.7"
-log = "0.4"
-futures = "0.3"
+bytemuck = {version = "1.7.*", features=["derive"]}
+futures = "*"
+ordered-float = "2.1.1"
+bitflags = "1.2.1"
+statrs = "0.14.0"
+clap = "2.33.3"
 tobj = "2.0.4"
-bytemuck = { version = "1.4", features = [ "derive" ] }
-wgpu = "0.9.*"
-akari = {version="*",git="https://github.com/shiinamiyuki/akari_render_rs"}
-lazy_static = "*"
-
-# [dependencies.wgpu]
-# version = "0.7"
-# features = ["vulkan-portability"]
-
-[[bin]]
-name="arukas"
-path="src/bin/arukas.rs"
+lazy_static = "1.*"
+ash = "0.33.3"
+ash-window = "0.7.0"
+vkc = {git = "https://github.com/shiinamiyuki/vkc" }
+shaderc = {version = "0.7.2", optional = true}
+log = "*"
+indicatif = "0.16.2"
